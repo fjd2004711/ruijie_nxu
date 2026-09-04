@@ -6,6 +6,11 @@
 
 一个用于宁夏大学校园网锐捷认证的 Linux 通用脚本，支持自动重连和多运营商，现已支持OpenWrt。
 
+> [!IMPORTANT]
+> ### 中卫校区 OpenWrt 用户必读
+>
+> 部分接入口需要先完成下文的 **中卫校区 WAN 混合 VLAN 1 配置**，WAN 才能获取 DHCP 地址。出现 WAN 长期 `pending`、能看到网关 VLAN 1 邻居却无法获取地址时，请先配置 VLAN，再运行认证脚本。
+
 ## 🚀 功能特性
 
 * 🖥️ **通用性** - 适用于各种 Linux 系统，包括 OpenWrt/LEDE 路由器系统
@@ -202,6 +207,77 @@ vi /etc/rc.local
 ```
 
 5. 保存文件并退出。这样路由器启动后就会自动运行认证脚本。
+
+#### 中卫校区 WAN 混合 VLAN 1 配置
+
+> [!WARNING]
+> ### 先完成 WAN 配置，再运行认证脚本
+>
+> 本节用于中卫校区存在“DHCP 未打标签、网关回复带 VLAN 1 标签”的接入口。未完成本节配置时，认证脚本无法取得登录页，也无法完成认证。
+
+中卫校区部分接入口的 DHCP 请求使用未标记报文，而网关的 ARP/邻居回复携带 `802.1Q VLAN 1` 标签。将 WAN 直接配置为 `eth0.1` 会使 DHCP 请求带上 VLAN 标签，无法取得租约；直接使用 `eth0` 则无法正确处理带 VLAN 1 标签的网关回复。
+
+此场景应在上游物理口上建立启用 VLAN filtering 的桥，将未标记流量和 VLAN 1 归入同一个逻辑网络。以下示例假设逻辑接口为 `wan`、上游物理口为 `eth0`；请先确认实际名称：
+
+```sh
+uci show network | grep '=interface'
+ip route show default
+ip -br link
+```
+
+先备份网络配置：
+
+```sh
+cp /etc/config/network /etc/config/network.before-zhongwei-vlan
+```
+
+创建混合 VLAN WAN：
+
+```sh
+uci -q delete network.wan_vlan1
+uci -q delete network.wan_bridge
+uci -q delete network.wan_bridge_vlan1
+
+uci set network.wan_bridge='device'
+uci set network.wan_bridge.name='br-wan'
+uci set network.wan_bridge.type='bridge'
+uci set network.wan_bridge.vlan_filtering='1'
+uci set network.wan_bridge.bridge_empty='1'
+uci add_list network.wan_bridge.ports='eth0'
+
+uci set network.wan_bridge_vlan1='bridge-vlan'
+uci set network.wan_bridge_vlan1.device='br-wan'
+uci set network.wan_bridge_vlan1.vlan='1'
+uci add_list network.wan_bridge_vlan1.ports='eth0:u*'
+
+uci set network.wan.device='br-wan.1'
+uci set network.wan.proto='dhcp'
+uci set network.wan.auto='1'
+uci commit network
+/etc/init.d/network restart
+```
+
+`eth0:u*` 将未标记 DHCP 流量归入 VLAN 1，并接收 VLAN 1 的带标签回复；从 WAN 发往上游的流量保持未标记。
+
+验证网络状态：
+
+```sh
+ifstatus wan
+ip route show default
+ip neigh show dev br-wan.1
+curl -sS -i --max-time 10 http://4399.com/ | sed -n '1,10p'
+```
+
+成功后，`wan` 会获得校园网 DHCP 地址和默认路由。未认证时，`4399.com` 应跳转至 `eportal/index.jsp`；认证完成后则访问真实网站。认证门户通常不响应 ICMP，因此应以 DHCP、路由、邻居表和 HTTP 请求判断状态。
+
+如未取得 WAN 地址，恢复备份：
+
+```sh
+cp /etc/config/network.before-zhongwei-vlan /etc/config/network
+/etc/init.d/network restart
+```
+
+这套桥和 VLAN 配置仅用于中卫校区。家庭 PPPoE 或普通 DHCP 应使用直接绑定物理 WAN 口的独立网络配置，不应与 `br-wan.1` 同时启用。
 
 ## 🤝 贡献
 
