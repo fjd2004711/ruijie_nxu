@@ -1,0 +1,8 @@
+config netlogin_nxu 'main'
+	option enabled '0'
+	option persistent_login '1'
+	option service 'campus'
+	option username ''
+	option password ''
+	option log_level 'INFO'
+	option check_interval '5'

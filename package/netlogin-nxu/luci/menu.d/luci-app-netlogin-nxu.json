@@ -1,0 +1,9 @@
+{
+    "admin/services/netlogin_nxu": {
+        "title": "NXU NetLogin",
+        "order": 60,
+        "action": {
+            "type": "firstchild"
+        }
+    }
+}

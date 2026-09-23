@@ -1,0 +1,34 @@
+name: Build OpenWrt IPK
+
+on:
+  push:
+    paths:
+      - 'netlogin_openwrt.sh'
+      - 'package/netlogin-nxu/**'
+      - '.github/workflows/build-ipk.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check the current OpenWrt script
+        run: test -x netlogin_openwrt.sh
+
+      - name: Build package with the OpenWrt SDK
+        uses: openwrt/gh-action-sdk@v8
+        env:
+          ARCH: x86_64
+          FEEDNAME: netlogin
+          PACKAGES: netlogin-nxu luci-app-netlogin-nxu
+          V: s
+
+      - name: Upload IPK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: netlogin-nxu-ipk
+          path: bin/packages/**/netlogin/*.ipk
+          if-no-files-found: error

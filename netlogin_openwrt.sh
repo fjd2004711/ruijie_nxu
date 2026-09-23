@@ -1,20 +1,57 @@
 #!/bin/sh
 
 # 宁夏大学校园网 NetLogin 认证脚本（OpenWrt/ash 版本）
-# 使用方法：./netlogin_openwrt.sh <服务提供商> <用户名> <密码> [action] [log_level]
-if [ "$#" -lt 3 ]; then
-    echo "使用方法: $0 <服务提供商> <用户名> <密码> [action] [log_level]"
-    echo "action 留空表示正常运行，为 logout 时表示下线操作。"
-    echo "log_level 可选值: ERROR, WARN, INFO, DEBUG。默认为 INFO。"
+# 命令行：./netlogin_openwrt.sh <服务提供商> <用户名> <密码> [action] [log_level]
+# 服务模式：./netlogin_openwrt.sh --uci
+uci_get() {
+    uci_value=$(uci -q get "$1" 2>/dev/null) || uci_value=""
+    if [ -n "$uci_value" ]; then
+        printf '%s\n' "$uci_value"
+    else
+        printf '%s\n' "$2"
+    fi
+}
+
+if [ "$1" = "--uci" ]; then
+    if ! command -v uci >/dev/null 2>&1; then
+        echo "错误：--uci 模式需要 OpenWrt 的 uci 命令。" >&2
+        exit 1
+    fi
+    service=$(uci_get netlogin-nxu.main.service campus)
+    username=$(uci_get netlogin-nxu.main.username "")
+    password=$(uci_get netlogin-nxu.main.password "")
+    action=""
+    log_level=$(uci_get netlogin-nxu.main.log_level INFO)
+    persistent_login=$(uci_get netlogin-nxu.main.persistent_login 1)
+    check_interval=$(uci_get netlogin-nxu.main.check_interval 5)
+else
+    if [ "$#" -lt 3 ]; then
+        echo "使用方法: $0 <服务提供商> <用户名> <密码> [action] [log_level]"
+        echo "或使用 OpenWrt 配置模式: $0 --uci"
+        exit 1
+    fi
+    service="$1"
+    username="$2"
+    password="$3"
+    action="${4:-}"
+    log_level="${5:-INFO}"
+    persistent_login=1
+    check_interval=5
+fi
+
+if [ -z "$username" ] || [ -z "$password" ]; then
+    echo "错误：未配置校园网账号或密码。" >&2
     exit 1
 fi
 
-service="$1"
-username="$2"
-password="$3"
-action="${4:-}"
-# 设置日志级别，默认为 INFO
-log_level="${5:-INFO}"
+case "$persistent_login" in
+    0|1) ;;
+    *) persistent_login=1 ;;
+esac
+
+case "$check_interval" in
+    ''|*[!0-9]|0) check_interval=5 ;;
+esac
 
 # 日志级别枚举（数值越小，级别越高）
 # ash 不支持关联数组，使用简单的数值代替
@@ -49,87 +86,7 @@ esac
 
 retry_limit=99
 
-log_file="/var/log/netlogin.log"
-# 设置日志文件最大大小（字节），这里设置为1MB
-max_log_size=$((1024 * 1024))
-# 提前触发清理的阈值（80%），防止过晚触发清理导致超限
-log_threshold=$((max_log_size * 8 / 10))
-# 设置单条日志的最大大小估计值（字节）
-max_log_entry_size=200
 network_status=""
-
-# 创建日志文件目录（如果不存在）
-log_dir=$(dirname "$log_file")
-if [ ! -d "$log_dir" ] && [ "$log_dir" != "." ]; then
-    mkdir -p "$log_dir" 2>/dev/null || {
-        # 如果无法创建目录，改用/tmp目录
-        echo "警告: 无法创建目录 $log_dir, 将使用/tmp目录代替"
-        log_file="/tmp/netlogin.log"
-    }
-fi
-if ! touch "$log_file" 2>/dev/null; then
-    echo "警告: 无法写入 $log_file, 将使用/tmp目录代替"
-    log_file="/tmp/netlogin.log"
-    touch "$log_file" 2>/dev/null || echo "警告: 无法创建日志文件，将仅输出到控制台"
-fi
-
-# 日志管理函数 - 强制清理确保不超限（兼容无stat命令的系统）
-manage_log() {
-    # 先进行一次sync确保获取的文件大小是最新的
-    sync
-
-    # 检查日志文件是否存在
-    if [ -f "$log_file" ]; then
-        # 获取当前日志文件大小（使用多种方式，确保兼容性）
-        # 方法1: 尝试使用stat命令
-        if command -v stat >/dev/null 2>&1; then
-            current_size=$(stat -c %s "$log_file" 2>/dev/null || stat -f %z "$log_file" 2>/dev/null || echo "0")
-        # 方法2: 使用ls -l和awk（适用于大多数系统，包括BusyBox）
-        elif ls -l "$log_file" >/dev/null 2>&1; then
-            current_size=$(ls -l "$log_file" 2>/dev/null | awk '{print $5}' 2>/dev/null || echo "0")
-        # 方法3: 使用wc -c统计字节数（最基本的方法）
-        elif command -v wc >/dev/null 2>&1; then
-            current_size=$(wc -c < "$log_file" 2>/dev/null || echo "0")
-        else
-            # 默认假设文件可能很大，强制清理
-            current_size="$max_log_size"
-            echo "警告：无法获取文件大小，假定需要清理"
-        fi
-
-        # 确保current_size是有效的数字
-        case "$current_size" in
-            ''|*[!0-9]*) current_size="$max_log_size" ;;
-        esac
-
-        # 如果日志文件大小超过阈值（80%），提前进行清理
-        if [ "$current_size" -gt "$log_threshold" ]; then
-            echo "日志文件大小 ($current_size bytes) 接近或超过限制，正在清理..."
-
-            # 强制刷新文件系统缓存，确保所有写入都已完成
-            sync
-
-            # 保留最后600行日志（更激进地清理，确保不会接近上限）
-            tail -n 600 "$log_file" > "${log_file}.tmp"
-
-            # 确保临时文件创建成功
-            if [ -f "${log_file}.tmp" ]; then
-                # 用cat覆盖原文件内容（不改变inode，处理被锁定的文件）
-                cat "${log_file}.tmp" > "$log_file"
-                rm -f "${log_file}.tmp"
-
-                # 添加清理记录
-                truncate_msg="$(date '+%Y-%m-%d %H:%M:%S') - [WARN] 日志文件已清理，保留最后700行"
-                echo "$truncate_msg" >> "$log_file"
-                echo "$truncate_msg"
-
-                # 再次刷新确保写入完成
-                sync
-            else
-                echo "警告：日志清理失败，无法创建临时文件"
-            fi
-        fi
-    fi
-}
 
 # 记录日志的函数
 # 用法: log_message <级别> <消息>
@@ -153,53 +110,19 @@ log_message() {
             ;;
     esac
 
-    # 只有当消息的日志级别小于或等于当前设置的日志级别时才记录
+    # 只有当消息的日志级别小于或等于当前设置的日志级别时才记录。
+    # OpenWrt 的 logd 使用有界环形缓冲区，不写入不断增长的日志文件。
     if [ "$log_level_value" -le "$current_level" ]; then
-        # 先检查并管理日志大小
-        manage_log
+        priority="info"
+        case "$level" in
+            ERROR) priority="err" ;;
+            WARN) priority="warning" ;;
+            DEBUG) priority="debug" ;;
+        esac
 
-        # 生成带时间戳和日志级别的日志条目
-        log_entry="$(date '+%Y-%m-%d %H:%M:%S') - [$level] $message"
-
-        # 再次检查文件大小，使用多种兼容方式
-        if [ -f "$log_file" ]; then
-            sync
-            # 使用与之前相同的多种方法获取文件大小
-            if command -v stat >/dev/null 2>&1; then
-                current_size=$(stat -c %s "$log_file" 2>/dev/null || stat -f %z "$log_file" 2>/dev/null || echo "0")
-            elif ls -l "$log_file" >/dev/null 2>&1; then
-                current_size=$(ls -l "$log_file" 2>/dev/null | awk '{print $5}' 2>/dev/null || echo "0")
-            elif command -v wc >/dev/null 2>&1; then
-                current_size=$(wc -c < "$log_file" 2>/dev/null || echo "0")
-            else
-                current_size="$max_log_size"
-            fi
-
-            case "$current_size" in
-                ''|*[!0-9]*) current_size="$max_log_size" ;;
-            esac
-
-            # 如果当前大小已经超过或接近限制，或添加此条日志后会超过限制，执行紧急清理
-            if [ "$current_size" -gt "$log_threshold" ] || [ "$((current_size + ${#log_entry} + 2))" -gt "$max_log_size" ]; then
-                # 更激进的清理 - 只保留400行
-                echo "执行紧急日志清理... 当前大小: $current_size bytes"
-                sync
-                tail -n 400 "$log_file" > "${log_file}.tmp"
-                cat "${log_file}.tmp" > "$log_file"
-                rm -f "${log_file}.tmp"
-                echo "$(date '+%Y-%m-%d %H:%M:%S') - [WARN] 紧急日志清理完成，减少为400行" >> "$log_file"
-                sync
-
-                # 清理后再次检查大小
-                current_size=$(stat -c %s "$log_file" 2>/dev/null || stat -f %z "$log_file" 2>/dev/null || echo "0")
-                echo "清理后日志大小: $current_size bytes（最大限制: $max_log_size bytes）"
-            fi
+        if command -v logger >/dev/null 2>&1; then
+            logger -t ruijie-nxu -p "user.$priority" "$message" 2>/dev/null
         fi
-
-        # 添加日志 - 使用单独命令确保写入成功
-        echo "$log_entry" >> "$log_file"
-
-        # 在控制台显示消息
         echo "[$level] $message"
     fi
 }
@@ -221,17 +144,26 @@ log_debug() {
     log_message "DEBUG" "$1"
 }
 
+# 只在网络状态发生变化时记录一次，避免轮询期间重复刷屏。
+last_log_state=""
+log_state() {
+    state="$1"
+    level="$2"
+    message="$3"
+    [ "$last_log_state" = "$state" ] && return
+    last_log_state="$state"
+    log_message "$level" "$message"
+}
+
 check_connection() {
     # 登录页在已认证状态会返回 Dr.COMWebLoginID_1.htm；不依赖可能受限的校外站点。
     log_debug "检查 NetLogin 认证状态..."
     status_page=$(curl -fsS --connect-timeout 8 --max-time 15 \
         --resolve "${portal_host}:443:${portal_ip}" "https://${portal_host}/") || status_page=""
     if printf '%s' "$status_page" | grep -q 'Dr.COMWebLoginID_1.htm'; then
-        log_info "网络已认证。"
         network_status="online"
         return 0
     else
-        log_info "网络未认证。"
         network_status="offline_or_pending_auth"
         return 1
     fi
@@ -416,54 +348,20 @@ connect() {
 if [ "${action}" = "logout" ]; then
     logout
 else
-    # 启动前强制检查并清理日志文件大小（兼容多种系统）
-    if [ -f "$log_file" ]; then
-        # 使用多种方式获取文件大小，确保兼容性
-        if command -v stat >/dev/null 2>&1; then
-            file_size=$(stat -c %s "$log_file" 2>/dev/null || stat -f %z "$log_file" 2>/dev/null || echo "0")
-        elif ls -l "$log_file" >/dev/null 2>&1; then
-            file_size=$(ls -l "$log_file" 2>/dev/null | awk '{print $5}' 2>/dev/null || echo "0")
-        elif command -v wc >/dev/null 2>&1; then
-            file_size=$(wc -c < "$log_file" 2>/dev/null || echo "0")
-        else
-            file_size="$max_log_size"
-            echo "警告：无法获取文件大小，假定需要清理"
-        fi
-
-        # 确保获取的大小是有效数字
-        case "$file_size" in
-            ''|*[!0-9]*) file_size="$max_log_size" ;;
-        esac
-
-        echo "启动前检查日志文件：${log_file}，大小：${file_size} bytes"
-
-        if [ -n "$file_size" ] && [ "$file_size" -gt "$((max_log_size / 2))" ]; then
-            echo "启动前执行预防性日志清理..."
-            sync
-            tail -n 400 "$log_file" > "${log_file}.tmp"
-            cat "${log_file}.tmp" > "$log_file"
-            rm -f "${log_file}.tmp"
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - [INFO] 启动前日志清理完成" >> "$log_file"
-            sync
-
-            # 验证清理结果（兼容多种系统）
-            if command -v stat >/dev/null 2>&1; then
-                new_size=$(stat -c %s "$log_file" 2>/dev/null || stat -f %z "$log_file" 2>/dev/null || echo "0")
-            elif ls -l "$log_file" >/dev/null 2>&1; then
-                new_size=$(ls -l "$log_file" 2>/dev/null | awk '{print $5}' 2>/dev/null || echo "0")
-            elif command -v wc >/dev/null 2>&1; then
-                new_size=$(wc -c < "$log_file" 2>/dev/null || echo "0")
-            else
-                new_size="未知"
-            fi
-            echo "清理后文件大小：${new_size} bytes"
-        fi
-    fi
-
     retry_count=0
     wait_time=60
     log_info "启动校园网认证服务，日志级别: $log_level"
     log_debug "详细日志模式已启用"
+
+    if [ "$persistent_login" != "1" ]; then
+        log_info "持久登录已关闭，执行一次认证检查。"
+        if check_connection; then
+            log_state "connection-online" INFO "网络已认证。"
+            exit 0
+        fi
+        connect
+        exit $?
+    fi
 
     # 进入主循环
     while true; do
@@ -471,12 +369,12 @@ else
         if check_connection; then
             case "${network_status}" in
                 "online")
-                    log_info "网络状态为在线，等待下一次检测。"
+                    log_state "connection-online" INFO "网络已认证，等待下一次检测。"
                     # 如果网络恢复，重置重试次数和等待时间
                     retry_count=0
                     wait_time=5
                     log_debug "重置重试计数器和等待时间"
-                    sleep 5
+                    sleep "$check_interval"
                     ;;
                 "offline_or_pending_auth")
                     log_info "网络离线或未认证，尝试进行认证。"
@@ -484,13 +382,12 @@ else
                     ;;
             esac
         else
-            log_warn "网络状态为离线，尝试重连。"
+            log_state "connection-offline" WARN "网络未认证或不可达，尝试重连。"
             connect
             # 使用更兼容的方式增加retry_count
             retry_count=$(($retry_count + 1))
-            wait_time=$((5 + retry_count * 10))
-            log_info "当前已尝试重连次数：$retry_count"
-            log_info "等待时间：$wait_time 秒"
+            wait_time=$((check_interval + retry_count * 10))
+            log_debug "当前已尝试重连次数：$retry_count，等待时间：$wait_time 秒"
             sleep $wait_time
         fi
 

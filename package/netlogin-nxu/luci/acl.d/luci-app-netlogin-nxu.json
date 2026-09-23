@@ -1,0 +1,11 @@
+{
+    "luci-app-netlogin-nxu": {
+        "description": "Grant access to NXU NetLogin configuration",
+        "read": {
+            "uci": ["netlogin-nxu"]
+        },
+        "write": {
+            "uci": ["netlogin-nxu"]
+        }
+    }
+}

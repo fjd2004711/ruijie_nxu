@@ -2,6 +2,20 @@
 
 本文档记录了宁夏大学校园网认证脚本的所有重要更新和变更。
 
+## 2026-09-24
+
+- 🔧 **OpenWrt 日志与权限处理**
+  - `netlogin_openwrt.sh` 与 `ruijie_nxu_openwrt.sh` 改用 `logger -t ruijie-nxu` 写入 OpenWrt 系统日志
+  - 认证状态只在状态变化时记录，避免每次轮询重复刷屏
+  - 移除 `/var/log` 日志文件和自动清理逻辑，不再依赖日志目录写权限
+  - 日志可通过 `logread -e ruijie-nxu` 或 LuCI“系统日志”查看
+
+- 📦 **OpenWrt IPK/LuCI 支持**
+  - 新增 `netlogin-nxu` 核心服务包和 `luci-app-netlogin-nxu` Web 配置包
+  - UCI 保存账号、密码、持久登录开关、日志级别和检测间隔
+  - 使用 `procd` 管理服务，提供启动、重启、状态查看和异常拉起
+  - GitHub Actions 自动构建并上传两个 IPK 制品
+
 ## 2026-09-21
 
 - ✨ **NetLogin 支持**

@@ -17,7 +17,7 @@
 * 🔄 **自动重连** - 智能监测网络状态，断线时自动尝试重新连接
 * 🌐 **当前认证页支持** - 适配统一认证账号登录
 * 🛑 **下线支持** - 提供便捷的下线操作
-* 📊 **日志管理** - 智能控制日志大小，支持不同级别的日志记录
+* 📊 **日志管理** - 使用 OpenWrt 系统日志，支持不同级别且不会持续写入闪存
 * 🔌 **兼容性** - 提供标准 bash 版本和 OpenWrt 兼容版本
 
 ## 当前验证状态
@@ -142,9 +142,13 @@ sudo ./netlogin.sh campus username password logout
 
 ### 📁 日志管理
 
-脚本使用**强制清理**机制确保日志文件严格控制在限制范围内：
-- 日志默认保存在 `/var/log/netlogin.log`（如无法访问，自动切换到 `/tmp/netlogin.log`）
-- 日志文件大小严格限制在 1MB 以内，提前在达到80%时触发清理
+OpenWrt 版本使用系统 `logd` 环形日志，不创建不断增长的 `/var/log` 文件：
+
+```sh
+logread -e ruijie-nxu
+```
+
+LuCI 中可在“状态 → 系统日志”查看带有 `ruijie-nxu` 标签的记录。日志缓冲区大小由 OpenWrt 系统配置控制，写满后会自动淘汰旧记录，不会持续占用闪存。
 
 ## 📝 更新日志
 
@@ -187,41 +191,75 @@ sudo systemctl enable netlogin.service
 sudo systemctl start netlogin.service
 ```
 
-#### OpenWrt系统配置
+#### OpenWrt IPK/LuCI 配置
 
-1. 将脚本上传到路由器，一般放置在 `/usr/bin/` 目录下:
+GitHub Actions 会生成两个包：
 
-```bash
-scp netlogin_openwrt.sh root@192.168.1.1:/usr/bin/
+```text
+netlogin-nxu_*.ipk             # 认证服务
+luci-app-netlogin-nxu_*.ipk   # LuCI Web 配置和状态页面
 ```
 
-2. 确保脚本有执行权限:
+安装后推荐在 LuCI 的“服务 → NXU NetLogin”中配置：
 
-```bash
-chmod 755 /usr/bin/netlogin_openwrt.sh
+- 启用服务
+- 账号和密码
+- 持久登录（断线自动重连）
+- 日志级别
+- 网络检测间隔
+
+保存并应用后，服务会由 `procd` 管理并在启动时自动运行。账号和密码只保存在路由器的 `/etc/config/netlogin-nxu`，仓库和 IPK 默认不包含真实凭据。
+
+命令行安装和配置方式：
+
+```sh
+opkg install netlogin-nxu_*.ipk
+opkg install luci-app-netlogin-nxu_*.ipk
+
+uci set netlogin-nxu.main.enabled='1'
+uci set netlogin-nxu.main.persistent_login='1'
+uci set netlogin-nxu.main.service='campus'
+uci set netlogin-nxu.main.username='你的账号'
+uci set netlogin-nxu.main.password='你的密码'
+uci set netlogin-nxu.main.log_level='INFO'
+uci set netlogin-nxu.main.check_interval='5'
+uci commit netlogin-nxu
+
+/etc/init.d/netlogin-nxu enable
+/etc/init.d/netlogin-nxu restart
+/etc/init.d/netlogin-nxu status
 ```
 
-3. 编辑 `/etc/rc.local` 文件（在系统启动时运行）:
-
-```bash
-vi /etc/rc.local
-```
-
-4. 在 `exit 0` 行之前添加:
-
-```bash
-/usr/bin/netlogin_openwrt.sh <服务提供商> <用户名> <密码> "" INFO &
-```
-
-5. 保存文件并退出。这样路由器启动后就会自动运行认证脚本。
+如果暂时不使用 IPK，也可以手动运行 `netlogin_openwrt.sh`；不建议再把账号密码直接写入 `/etc/rc.local`。
 
 #### OpenWrt 网络前提
 
 认证脚本不会替路由器建立校园网链路。运行前，请先确认 WAN（有线或无线客户端模式）已经取得校园网 DHCP 地址和默认路由；未认证时也应能访问认证门户。不同校区、AP 与有线端口的 VLAN/DHCP 策略可能不同，本项目目前不提供未经实机验证的 VLAN 配置命令。
 
-## OpenWrt 插件计划
+## OpenWrt 插件说明
 
-后续计划将 NetLogin 封装为 iStoreOS/OpenWrt 插件，提供 LuCI 配置页面、账号安全保存、WAN 状态联动、开机自启和日志查看。插件开发将在 OpenWrt 脚本完成真实校园网环境的登录、下线与重连验证后启动。
+项目已经提供 OpenWrt IPK 和 LuCI 子包。LuCI 页面负责配置账号、密码、持久登录和检测间隔；`procd` 负责开机启动、进程拉起和异常重启；`/etc/init.d/netlogin-nxu status` 显示进程状态及最近日志。
+
+OpenWrt 版本使用 `logger -t ruijie-nxu` 写入 `logd` 环形缓冲区，不创建无限增长的日志文件。查看日志：
+
+```sh
+logread -e ruijie-nxu
+```
+
+日志缓冲区由 OpenWrt 系统统一限制，写满后自动淘汰旧记录，不会持续占用闪存。
+
+### IPK 构建
+
+仓库内的 `.github/workflows/build-ipk.yml` 使用 OpenWrt SDK 自动构建。推送包含脚本或 `package/netlogin-nxu/` 的提交后，Actions 会上传两个 IPK 制品；也可以在 Actions 页面手动运行。
+
+本地构建需要与目标固件匹配的 OpenWrt SDK：
+
+```sh
+make menuconfig
+make package/netlogin-nxu/compile V=s
+```
+
+核心包和 LuCI 包均为 `PKGARCH:=all`，不包含架构相关二进制；SDK 的目标架构主要用于解析 `curl`、`ca-bundle` 和 LuCI 依赖。
 
 ## 🤝 贡献
 
@@ -240,18 +278,10 @@ vi /etc/rc.local
    - 检查脚本第一行是否为 `#!/bin/sh`
    - 直接使用绝对路径运行 `/usr/bin/netlogin_openwrt.sh`
 
-2. **日志文件权限问题**
-   - 默认日志保存在 `/var/log/netlogin.log`，请确保此路径存在且可写
-   - 如果无法创建目录，脚本会自动切换到 `/tmp/netlogin.log`
-   - 如果仍有问题，可手动修改脚本中的 `log_file` 变量到其他可写位置
-
-3. **日志管理问题**
-   - 如果日志文件不断增长没有被清理，检查是否有权限执行 `tail` 和 `cat` 命令
-   - 对于BleachWrt等精简系统：脚本已适配使用`ls -l`或`wc -c`替代`stat`命令
-   - 确认 `/tmp` 目录有足够空间创建临时文件
-   - 手动触发日志清理：`tail -n 400 /var/log/netlogin.log > /tmp/netlogin.tmp && cat /tmp/netlogin.tmp > /var/log/netlogin.log`
-   - 执行 `sync` 命令确保文件系统缓存被刷新
-   - 如遇顽固问题，可尝试重命名或删除日志文件：`rm /var/log/netlogin.log`，脚本会自动创建新文件
+2. **查看 OpenWrt 日志**
+   - 使用 `logread -e ruijie-nxu` 查看认证脚本日志
+   - LuCI 中打开“状态 → 系统日志”查看同一批日志
+   - 如需调整缓冲区大小，可检查 `uci get system.@system[0].log_size`
 
 3. **curl 命令失败**
    - 确认已安装 curl: `opkg update && opkg install curl`
@@ -265,8 +295,8 @@ vi /etc/rc.local
 
 查看脚本输出日志，可以帮助排查问题：
 
-```bash
-cat /var/log/netlogin.log
+```sh
+logread -e ruijie-nxu
 ```
 
-或根据您修改后的日志路径查看对应文件。
+脚本不会修改 `/var` 的全局权限，也不要求用户手动创建日志目录。

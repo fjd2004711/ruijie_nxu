@@ -48,7 +48,8 @@ esac
 
 retry_limit=99
 
-log_file="/var/log/ruijie_nxu.log"
+# 旧版兼容脚本也使用 OpenWrt 系统日志；/dev/null 仅作为旧清理逻辑的兼容占位。
+log_file="/dev/null"
 # 设置日志文件最大大小（字节），这里设置为1MB
 max_log_size=$((1024 * 1024))
 # 提前触发清理的阈值（80%），防止过晚触发清理导致超限
@@ -190,8 +191,16 @@ log_message() {
             fi
         fi
         
-        # 添加日志 - 使用单独命令确保写入成功
-        echo "$log_entry" >> "$log_file"
+        # 写入 OpenWrt logd 的有界环形缓冲区，不持续占用闪存。
+        priority="info"
+        case "$level" in
+            ERROR) priority="err" ;;
+            WARN) priority="warning" ;;
+            DEBUG) priority="debug" ;;
+        esac
+        if command -v logger >/dev/null 2>&1; then
+            logger -t ruijie-nxu -p "user.$priority" "$message" 2>/dev/null
+        fi
         
         # 在控制台显示消息
         echo "[$level] $message"
