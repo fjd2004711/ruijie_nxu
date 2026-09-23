@@ -1,6 +1,18 @@
-# 📝 宁夏大学校园网锐捷认证脚本更新日志
+# 📝 宁夏大学校园网认证脚本更新日志
 
-本文档记录了宁夏大学校园网锐捷认证脚本的所有重要更新和变更。
+本文档记录了宁夏大学校园网认证脚本的所有重要更新和变更。
+
+## 2026-09-21
+
+- ✨ **NetLogin 支持**
+  - 新增 `netlogin.sh`（标准 Linux）和 `netlogin_openwrt.sh`（OpenWrt）
+  - 适配当前 `netlogin.nxu.edu.cn` 统一认证页面与登录接口
+  - 自动读取页面索引，并使用 WAN 的实际 IP 与 MAC 发起认证
+  - 保留原有两个脚本，继续兼容旧认证系统
+  - 兼容 macOS 自带 Bash，并在日志目录不可写时自动使用 `/tmp/netlogin.log`
+  - NetLogin OpenWrt 版采用 BusyBox `ash` 兼容的参数加密与状态检测逻辑
+  - 测试状态：`netlogin.sh` 已实测当前认证页登录；`netlogin_openwrt.sh` 仅完成语法检查，尚未完成 OpenWrt 校园网端到端实机验证
+  - 移除未经实机验证的 OpenWrt VLAN 配置指引，避免将网络接入问题误判为认证脚本问题
 
 ## 2025-06-25 
 
