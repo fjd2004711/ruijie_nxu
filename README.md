@@ -31,11 +31,11 @@
 
 ### 版本选择
 
-本项目提供两套认证协议、共四个脚本。旧协议脚本保留不动，供仍在使用旧认证系统的接入口使用；当前认证页使用 NetLogin 脚本。
+本项目提供两套认证协议、共四个脚本。`ruijie_nxu.sh` 与 `ruijie_nxu_openwrt.sh` 是**旧版认证系统的兼容脚本**，仅供仍使用旧认证页的接入口继续使用，不再为当前统一认证页更新。当前 `netlogin.nxu.edu.cn` 认证页请使用 NetLogin 脚本。
 
 | 认证系统 | 标准 Linux（bash） | OpenWrt/LEDE（ash） |
 | --- | --- | --- |
-| 旧认证系统（兼容保留） | 原有标准脚本 | 原有 OpenWrt 脚本 |
+| 旧版认证系统（兼容保留） | `ruijie_nxu.sh` | `ruijie_nxu_openwrt.sh` |
 | 当前 NetLogin 认证系统 | `netlogin.sh` | `netlogin_openwrt.sh` |
 
 NetLogin 脚本会从 `netlogin.nxu.edu.cn` 读取当前页面配置，并使用 WAN 实际出口 IP 与 MAC 认证；密码只在运行时使用，不写入日志。当前统一认证页不再区分运营商，命令中的第一个 `service` 参数仅为兼容旧用法而保留，建议填写 `campus`。
@@ -218,6 +218,10 @@ vi /etc/rc.local
 #### OpenWrt 网络前提
 
 认证脚本不会替路由器建立校园网链路。运行前，请先确认 WAN（有线或无线客户端模式）已经取得校园网 DHCP 地址和默认路由；未认证时也应能访问认证门户。不同校区、AP 与有线端口的 VLAN/DHCP 策略可能不同，本项目目前不提供未经实机验证的 VLAN 配置命令。
+
+## OpenWrt 插件计划
+
+后续计划将 NetLogin 封装为 iStoreOS/OpenWrt 插件，提供 LuCI 配置页面、账号安全保存、WAN 状态联动、开机自启和日志查看。插件开发将在 OpenWrt 脚本完成真实校园网环境的登录、下线与重连验证后启动。
 
 ## 🤝 贡献
 
