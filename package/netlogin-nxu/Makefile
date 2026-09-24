@@ -13,6 +13,7 @@ define Package/netlogin-nxu
   TITLE:=NXU NetLogin authentication service
   URL:=https://github.com/fjd2004711/ruijie_nxu
   DEPENDS:=+curl +ca-bundle +uci
+  DEFAULT:=y
   PKGARCH:=all
 endef
 
@@ -30,6 +31,7 @@ define Package/luci-app-netlogin-nxu
   SUBMENU:=3. Applications
   TITLE:=LuCI support for NXU NetLogin
   DEPENDS:=+netlogin-nxu +luci-base
+  DEFAULT:=y
   PKGARCH:=all
 endef
 
