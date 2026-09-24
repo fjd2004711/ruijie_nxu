@@ -27,9 +27,13 @@ jobs:
           PACKAGES: netlogin-nxu
           V: s
 
+      - name: List generated IPK files
+        if: always()
+        run: find bin -type f -name '*.ipk' -print
+
       - name: Upload IPK artifact
         uses: actions/upload-artifact@v4
         with:
           name: netlogin-nxu-ipk
-          path: bin/packages/**/netlogin/*.ipk
+          path: bin/**/*.ipk
           if-no-files-found: error
