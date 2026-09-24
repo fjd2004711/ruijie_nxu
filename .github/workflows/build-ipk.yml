@@ -21,7 +21,9 @@ jobs:
       - name: Build package with the OpenWrt SDK
         uses: openwrt/gh-action-sdk@v8
         env:
-          ARCH: x86_64
+          # Pin the SDK release so the output remains compatible with
+          # OpenWrt/iStoreOS 24.10 and uses the expected .ipk format.
+          ARCH: x86_64-24.10.2
           FEEDNAME: netlogin
           # luci-app-netlogin-nxu is a subpackage in the netlogin-nxu Makefile.
           PACKAGES: netlogin-nxu

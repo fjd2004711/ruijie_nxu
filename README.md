@@ -250,7 +250,7 @@ logread -e ruijie-nxu
 
 ### IPK 构建
 
-仓库内的 `.github/workflows/build-ipk.yml` 使用 OpenWrt SDK 自动构建。推送包含脚本或 `package/netlogin-nxu/` 的提交后，Actions 会上传两个 IPK 制品；也可以在 Actions 页面手动运行。
+仓库内的 `.github/workflows/build-ipk.yml` 固定使用 OpenWrt 24.10.2 x86/64 SDK 自动构建。推送包含脚本或 `package/netlogin-nxu/` 的提交后，Actions 会上传两个 IPK 制品；也可以在 Actions 页面手动运行。
 
 本地构建需要与目标固件匹配的 OpenWrt SDK：
 
