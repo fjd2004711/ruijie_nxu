@@ -25,16 +25,16 @@ jobs:
           # OpenWrt/iStoreOS 24.10 and uses the expected .ipk format.
           ARCH: x86_64-24.10.2
           FEEDNAME: netlogin
-          # luci-app-netlogin-nxu is a subpackage in the netlogin-nxu Makefile.
+          # The LuCI page is included in the single netlogin-nxu package.
           PACKAGES: netlogin-nxu
           V: s
 
       - name: List generated IPK files
         run: |
           mkdir -p artifacts
-          find . -type f -name '*.ipk' -print
-          find . -type f -name '*.ipk' -exec cp '{}' artifacts/ \;
-          test -n "$(find artifacts -type f -name '*.ipk' -print -quit)"
+          find . -type f -name 'netlogin-nxu_*.ipk' -print
+          find . -type f -name 'netlogin-nxu_*.ipk' -exec cp '{}' artifacts/ \;
+          test "$(find artifacts -type f -name 'netlogin-nxu_*.ipk' | wc -l | tr -d ' ')" -eq 1
 
       - name: Upload IPK artifact
         uses: actions/upload-artifact@v4

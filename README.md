@@ -193,11 +193,10 @@ sudo systemctl start netlogin.service
 
 #### OpenWrt IPK/LuCI 配置
 
-GitHub Actions 会生成两个包：
+GitHub Actions 会生成一个包，认证服务和 LuCI Web 页面已经合并其中：
 
 ```text
-netlogin-nxu_*.ipk             # 认证服务
-luci-app-netlogin-nxu_*.ipk   # LuCI Web 配置和状态页面
+netlogin-nxu_*.ipk             # 认证服务 + LuCI Web 配置和状态页面
 ```
 
 安装后推荐在 LuCI 的“服务 → NXU NetLogin”中配置：
@@ -214,7 +213,6 @@ luci-app-netlogin-nxu_*.ipk   # LuCI Web 配置和状态页面
 
 ```sh
 opkg install netlogin-nxu_*.ipk
-opkg install luci-app-netlogin-nxu_*.ipk
 
 uci set netlogin-nxu.main.enabled='1'
 uci set netlogin-nxu.main.persistent_login='1'
@@ -238,7 +236,7 @@ uci commit netlogin-nxu
 
 ## OpenWrt 插件说明
 
-项目已经提供 OpenWrt IPK 和 LuCI 子包。LuCI 页面负责配置账号、密码、持久登录和检测间隔；`procd` 负责开机启动、进程拉起和异常重启；`/etc/init.d/netlogin-nxu status` 显示进程状态及最近日志。
+项目提供一个包含服务和 LuCI 页面的一体化 OpenWrt IPK。LuCI 页面负责配置账号、密码、持久登录和检测间隔；`procd` 负责开机启动、进程拉起和异常重启；`/etc/init.d/netlogin-nxu status` 显示进程状态及最近日志。
 
 OpenWrt 版本使用 `logger -t ruijie-nxu` 写入 `logd` 环形缓冲区，不创建无限增长的日志文件。查看日志：
 
@@ -250,7 +248,7 @@ logread -e ruijie-nxu
 
 ### IPK 构建
 
-仓库内的 `.github/workflows/build-ipk.yml` 固定使用 OpenWrt 24.10.2 x86/64 SDK 自动构建。推送包含脚本或 `package/netlogin-nxu/` 的提交后，Actions 会上传两个 IPK 制品；也可以在 Actions 页面手动运行。
+仓库内的 `.github/workflows/build-ipk.yml` 固定使用 OpenWrt 24.10.2 x86/64 SDK 自动构建。推送包含脚本或 `package/netlogin-nxu/` 的提交后，Actions 只上传一个 `netlogin-nxu_*.ipk` 制品；依赖由路由器的 `opkg` 软件源自动解决，也可以在 Actions 页面手动运行。
 
 本地构建需要与目标固件匹配的 OpenWrt SDK：
 
@@ -259,7 +257,7 @@ make menuconfig
 make package/netlogin-nxu/compile V=s
 ```
 
-核心包和 LuCI 包均为 `PKGARCH:=all`，不包含架构相关二进制；SDK 的目标架构主要用于解析 `curl`、`ca-bundle` 和 LuCI 依赖。
+该包为 `PKGARCH:=all`，不包含架构相关二进制；SDK 的目标架构只用于解析 `curl`、`ca-bundle` 和 LuCI 依赖。
 
 ## 🤝 贡献
 

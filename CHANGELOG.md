@@ -11,10 +11,10 @@
   - 日志可通过 `logread -e ruijie-nxu` 或 LuCI“系统日志”查看
 
 - 📦 **OpenWrt IPK/LuCI 支持**
-  - 新增 `netlogin-nxu` 核心服务包和 `luci-app-netlogin-nxu` Web 配置包
+  - 将服务和 LuCI Web 页面合并为一个 `netlogin-nxu` IPK，安装后即可进入 LuCI 配置
   - UCI 保存账号、密码、持久登录开关、日志级别和检测间隔
   - 使用 `procd` 管理服务，提供启动、重启、状态查看和异常拉起
-  - GitHub Actions 自动构建并上传两个 IPK 制品
+  - GitHub Actions 只上传一个 `netlogin-nxu_*.ipk` 制品；依赖由 `opkg` 自动解析
 
 ## 2026-09-21
 
