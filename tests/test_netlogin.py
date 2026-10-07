@@ -83,10 +83,12 @@ class NetLoginTests(unittest.TestCase):
             username=test; password=test; service=campus
             curl(){ printf 'dr1({"result":0,"ret_code":"2"})\\n200'; }
             """
-            self.assertEqual(run(mock + code + '\nconnect').returncode, 0)
+            shell = 'bash' if script == 'netlogin.sh' else 'sh'
+            result = run(mock + code + '\nconnect', shell=shell)
+            self.assertEqual(result.returncode, 0, result.stderr)
             # Encoding failure must stop before sending credentials to the server.
             guard = mock + code + '\nbase64_no_wrap(){ :; }; curl(){ echo SENT; }; connect'
-            completed = run(guard)
+            completed = run(guard, shell=shell)
             self.assertEqual(completed.returncode, 1)
             self.assertNotIn('SENT', completed.stdout)
 
