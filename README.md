@@ -6,8 +6,8 @@
 
 支持当前 `netlogin.nxu.edu.cn` 统一认证门户，为 macOS、Linux 和路由器提供自动认证与连接监测。
 
-[![Release](https://img.shields.io/github/v/release/fjd2004711/ruijie_nxu?color=6366f1)](https://github.com/fjd2004711/ruijie_nxu/releases/latest)
-[![Build IPK](https://github.com/fjd2004711/ruijie_nxu/actions/workflows/build-ipk.yml/badge.svg?branch=main)](https://github.com/fjd2004711/ruijie_nxu/actions/workflows/build-ipk.yml)
+[![Release](https://img.shields.io/github/v/release/fjd2004711/ruijie_nxu?color=6366f1&cacheSeconds=300&v=1.1.3)](https://github.com/fjd2004711/ruijie_nxu/releases/latest)
+[![Build IPK](https://github.com/fjd2004711/ruijie_nxu/actions/workflows/build-ipk.yml/badge.svg?branch=main&event=push&v=1.1.3)](https://github.com/fjd2004711/ruijie_nxu/actions/workflows/build-ipk.yml)
 [![OpenWrt](https://img.shields.io/badge/OpenWrt%20%2F%20iStoreOS-24.10-2563eb)](#实测状态)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
