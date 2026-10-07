@@ -1,5 +1,9 @@
 #!/bin/sh
 
+# 门户状态接口混有 GBK 文本；统一按字节处理，避免 macOS sed 的字符集错误。
+LC_ALL=C
+export LC_ALL
+
 # 宁夏大学校园网 NetLogin 认证脚本（OpenWrt/ash 版本）
 # 命令行：./netlogin_openwrt.sh <服务提供商> <用户名> <密码> [action] [log_level]
 # 服务模式：./netlogin_openwrt.sh --uci
@@ -84,6 +88,13 @@ case "$log_level" in
         ;;
 esac
 
+for required_command in curl awk sed tr cut; do
+    if ! command -v "$required_command" >/dev/null 2>&1; then
+        echo "错误：缺少必要命令 $required_command。" >&2
+        exit 1
+    fi
+done
+
 retry_limit=99
 
 network_status=""
@@ -156,17 +167,13 @@ log_state() {
 }
 
 check_connection() {
-    # 登录页在已认证状态会返回 Dr.COMWebLoginID_1.htm；不依赖可能受限的校外站点。
-    log_debug "检查 NetLogin 认证状态..."
-    status_page=$(curl -fsS --connect-timeout 8 --max-time 15 \
-        --resolve "${portal_host}:443:${portal_ip}" "https://${portal_host}/") || status_page=""
-    if printf '%s' "$status_page" | grep -q 'Dr.COMWebLoginID_1.htm'; then
+    status_page=$(portal_status 2>/dev/null) || status_page=""
+    if printf '%s' "$status_page" | grep -qE '"result"[[:space:]]*:[[:space:]]*1[[:space:]]*[,}]'; then
         network_status="online"
         return 0
-    else
-        network_status="offline_or_pending_auth"
-        return 1
     fi
+    network_status="offline_or_pending_auth"
+    return 1
 }
 
 # NetLogin 当前认证接口（2026-09）
@@ -177,7 +184,47 @@ portal_api="https://${portal_host}:${portal_port}/eportal/portal"
 user_agent="Mozilla/5.0 (OpenWrt; Linux) AppleWebKit/537.36 Chrome/122 Safari/537.36"
 
 base64_no_wrap() {
-    printf '%s' "$1" | base64 | tr -d '\r\n'
+    if command -v base64 >/dev/null 2>&1; then
+        printf '%s' "$1" | base64 | tr -d '\r\n'
+        return
+    fi
+    # 精简 BusyBox 可能同时没有 base64/od；按字节编码，仅依赖 awk。
+    # 末尾哨兵保留密码中的换行和空字符串，不让 awk 丢失最后一个换行。
+    printf '%s.' "$1" | LC_ALL=C awk '
+        BEGIN {
+            alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+            for (i=1; i<256; i++) byte[sprintf("%c", i)]=i
+        }
+        { if (NR>1) data=data "\n"; data=data $0 }
+        END {
+            data=substr(data, 1, length(data)-1)
+            for (i=1; i<=length(data); i+=3) {
+                a=byte[substr(data,i,1)]; b=byte[substr(data,i+1,1)]; c=byte[substr(data,i+2,1)]
+                printf "%s%s%s%s", substr(alphabet,int(a/4)+1,1),
+                    substr(alphabet,(a%4)*16+int(b/16)+1,1),
+                    (i+1<=length(data) ? substr(alphabet,(b%16)*4+int(c/64)+1,1) : "="),
+                    (i+2<=length(data) ? substr(alphabet,c%64+1,1) : "=")
+            }
+        }'
+}
+
+json_string() {
+    printf '%s' "$1" | sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+}
+
+valid_ipv4() {
+    printf '%s\n' "$1" | awk -F. 'NF!=4 {exit 1} {for(i=1;i<=4;i++) if($i !~ /^[0-9]+$/ || $i>255) exit 1; if($0=="0.0.0.0") exit 1}'
+}
+
+valid_mac() {
+    [ "${#1}" -eq 12 ] || return 1
+    case "$1" in *[!0-9a-fA-F]*|000000000000|111111111111|123456789012) return 1 ;; esac
+}
+
+portal_status() {
+    curl -4 --noproxy '*' -fsS --connect-timeout 8 --max-time 15 \
+        --resolve "${portal_host}:443:${portal_ip}" \
+        "https://${portal_host}/drcom/chkstatus?callback=dr1"
 }
 
 # 当前页面开启了 Dr.COM 的参数异或编码。只使用 BusyBox ash 支持的 POSIX 写法。
@@ -210,36 +257,53 @@ portal_encrypt() {
 
 # 从到认证服务器的路由中获取实际出口 IP 与接口，避免误用 LAN 地址。
 get_terminal_info() {
-    if command -v ip >/dev/null 2>&1; then
-        route=$(ip route get "$portal_ip" 2>/dev/null)
-        terminal_ip=$(printf '%s\n' "$route" | sed -n 's/.* src \([^ ]*\).*/\1/p' | head -n 1)
-        terminal_if=$(printf '%s\n' "$route" | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n 1)
-    else
-        route=$(route -n get "$portal_ip" 2>/dev/null)
-        terminal_if=$(printf '%s\n' "$route" | awk '/interface:/{print $2; exit}')
-        terminal_ip=$(ipconfig getifaddr "$terminal_if" 2>/dev/null)
-    fi
+    terminal_ip=""
+    terminal_if=""
     terminal_mac=""
-    if [ -n "$terminal_if" ] && [ -r "/sys/class/net/${terminal_if}/address" ]; then
-        terminal_mac=$(tr -d ':' < "/sys/class/net/${terminal_if}/address")
-    elif [ -n "$terminal_if" ]; then
-        terminal_mac=$(ifconfig "$terminal_if" 2>/dev/null | awk '/ether/{print $2; exit}' | tr -d ':')
+    if [ "$(uname -s)" = "Darwin" ]; then
+        # 非交互 shell 的 PATH 可能没有 /sbin 和 /usr/sbin。
+        terminal_if=$(/sbin/route -n get "$portal_ip" 2>/dev/null | awk '/interface:/{print $2; exit}')
+        terminal_ip=$(/usr/sbin/ipconfig getifaddr "$terminal_if" 2>/dev/null)
+        terminal_mac=$(/sbin/ifconfig "$terminal_if" 2>/dev/null | awk '/ether/{print $2; exit}' | tr -d ':')
+    elif command -v ip >/dev/null 2>&1; then
+        route_info=$(ip -4 route get "$portal_ip" 2>/dev/null)
+        terminal_ip=$(printf '%s\n' "$route_info" | sed -n 's/.* src \([^ ]*\).*/\1/p' | head -n 1)
+        terminal_if=$(printf '%s\n' "$route_info" | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n 1)
+        if [ -z "$terminal_ip" ] && [ -n "$terminal_if" ]; then
+            terminal_ip=$(ip -4 addr show dev "$terminal_if" 2>/dev/null | awk '/inet /{split($2,a,"/"); print a[1]; exit}')
+        fi
+        if [ -n "$terminal_if" ] && [ -r "/sys/class/net/${terminal_if}/address" ]; then
+            terminal_mac=$(tr -d ':\r\n' < "/sys/class/net/${terminal_if}/address")
+        elif [ -n "$terminal_if" ]; then
+            terminal_mac=$(ip link show dev "$terminal_if" 2>/dev/null | awk '/link\/ether/{print $2; exit}' | tr -d ':')
+        fi
     fi
-    if [ -z "$terminal_ip" ]; then
-        log_error "校园网出口尚未获得 IPv4 地址；请先检查 WAN DHCP/VLAN 配置。"
+    # 门户返回的终端信息优先于本机 LAN/VPN 地址，适用于 NAT 后的电脑。
+    terminal_status=$(portal_status 2>/dev/null) || terminal_status=""
+    for ip_field in v46ip ss5 v4ip; do
+        reported_ip=$(json_string "$terminal_status" "$ip_field")
+        if valid_ipv4 "$reported_ip"; then terminal_ip="$reported_ip"; break; fi
+    done
+    for mac_field in ss4 olmac; do
+        reported_mac=$(json_string "$terminal_status" "$mac_field" | tr -d ':-')
+        if valid_mac "$reported_mac"; then terminal_mac="$reported_mac"; break; fi
+    done
+    if ! valid_ipv4 "$terminal_ip"; then
+        log_error "无法获取校园网出口 IPv4；请检查 WAN DHCP、路由或 VPN。"
         return 1
     fi
-    if [ -z "$terminal_mac" ]; then
-        log_error "无法读取出口接口 MAC 地址。"
+    if ! valid_mac "$terminal_mac"; then
+        log_error "无法获取校园网出口 MAC；请检查 WAN 接口或门户连接。"
         return 1
     fi
+    log_debug "已取得校园网出口信息，接口 ${terminal_if:-由门户识别}。"
     return 0
 }
 
 # 当前认证页每次会下发 program/page 索引；认证请求必须带回这两个值。
 load_portal_config() {
     ip64=$(base64_no_wrap "$terminal_ip")
-    portal_config=$(curl -fsS --connect-timeout 8 --max-time 15 -A "$user_agent" \
+    portal_config=$(curl -4 --noproxy '*' -fsS --connect-timeout 8 --max-time 15 -A "$user_agent" \
         --resolve "${portal_host}:${portal_port}:${portal_ip}" -G "${portal_api}/page/loadConfig" \
         --data-urlencode "program_index=" \
         --data-urlencode "wlan_vlan_id=1" \
@@ -252,31 +316,37 @@ load_portal_config() {
         --data-urlencode "gw_id=" \
         --data-urlencode "callback=dr1" \
         --data-urlencode "jsVersion=4.X") || return 1
-    portal_program=$(printf '%s' "$portal_config" | sed -n 's/.*"program_index":"\([^"]*\)".*/\1/p' | head -n 1)
-    portal_page=$(printf '%s' "$portal_config" | sed -n 's/.*"page_index":"\([^"]*\)".*/\1/p' | head -n 1)
+    portal_program=$(printf '%s' "$portal_config" | sed -n 's/.*"program_index"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+    portal_page=$(printf '%s' "$portal_config" | sed -n 's/.*"page_index"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
     [ -n "$portal_program" ] && [ -n "$portal_page" ]
 }
 
 logout() {
     if ! get_terminal_info || ! load_portal_config; then
-        log_error "无法获取新版认证页面配置，注销失败。"
+        log_error "无法获取认证页面配置，注销失败。"
         return 1
     fi
-    logoutResult=$(curl -fsS --connect-timeout 8 --max-time 15 -A "$user_agent" \
+    portal_key=$(portal_key_from_ip "$terminal_ip")
+    # 当前统一认证通过 Radius 下线；请求和登录使用同一参数编码。
+    logoutResult=$(curl -4 --noproxy '*' -fsS --connect-timeout 8 --max-time 15 -A "$user_agent" \
         --resolve "${portal_host}:${portal_port}:${portal_ip}" -G "${portal_api}/logout" \
-        --data-urlencode "program_index=${portal_program}" \
-        --data-urlencode "page_index=${portal_page}" \
-        --data-urlencode "callback=dr1" \
-        --data-urlencode "jsVersion=4.X") || {
+        --data-urlencode "login_method=$(portal_encrypt '1')" \
+        --data-urlencode "wlan_user_ip=$(portal_encrypt "$terminal_ip")" \
+        --data-urlencode "wlan_user_mac=$(portal_encrypt "$terminal_mac")" \
+        --data-urlencode "program_index=$(portal_encrypt "$portal_program")" \
+        --data-urlencode "page_index=$(portal_encrypt "$portal_page")" \
+        --data-urlencode "callback=$(portal_encrypt 'dr1')" \
+        --data-urlencode "jsVersion=$(portal_encrypt '4.X')" \
+        --data-urlencode "encrypt=1") || {
         log_error "注销请求未完成。"
         return 1
     }
-    if printf '%s' "$logoutResult" | grep -qE '"result"[[:space:]]*:[[:space:]]*(1|"ok")'; then
+    if printf '%s' "$logoutResult" | grep -qE '"result"[[:space:]]*:[[:space:]]*(1|"ok")[[:space:]]*[,}]'; then
         log_info "注销成功。"
-    else
-        log_warn "注销请求已发送，但服务器未确认成功。"
+        return 0
     fi
-    exit 0
+    log_warn "注销失败：服务器未确认成功。"
+    return 1
 }
 
 connect() {
@@ -289,11 +359,15 @@ connect() {
         return 1
     fi
     [ "$service" != "campus" ] && log_debug "新版认证页不再区分运营商，忽略 service=${service}。"
-    user64=$(base64_no_wrap "$username")
-    pass64=$(base64_no_wrap "$password")
+    user64=$(base64_no_wrap "$username") || return 1
+    pass64=$(base64_no_wrap "$password") || return 1
+    if [ -z "$user64" ] || [ -z "$pass64" ]; then
+        log_error "账号或密码编码失败；请检查 base64 或 awk。"
+        return 1
+    fi
     portal_key=$(portal_key_from_ip "$terminal_ip")
     # 以下字段与认证页的原生 JavaScript 保持一致；不要删减空字段。
-    authResponse=$(curl -sS --connect-timeout 8 --max-time 15 -A "$user_agent" \
+    authResponse=$(curl -4 --noproxy '*' -sS --connect-timeout 8 --max-time 15 -A "$user_agent" \
         --resolve "${portal_host}:${portal_port}:${portal_ip}" -w '\n%{http_code}' -G "${portal_api}/login" \
         --data-urlencode "login_method=$(portal_encrypt '1')" \
         --data-urlencode "is_base64encode=$(portal_encrypt '1')" \
@@ -332,21 +406,31 @@ connect() {
         log_error "认证服务器返回 HTTP ${authStatus:-未知错误}。"
         return 1
     fi
-    if printf '%s' "$authResult" | grep -qE '"result"[[:space:]]*:[[:space:]]*(1|"ok")'; then
+    if printf '%s' "$authResult" | grep -qE '"result"[[:space:]]*:[[:space:]]*(1|"ok")[[:space:]]*[,}]'; then
         log_info "认证成功。"
         return 0
     fi
-    if printf '%s' "$authResult" | grep -qE '"ret_code"[[:space:]]*:[[:space:]]*2'; then
+    if printf '%s' "$authResult" | grep -qE '"ret_code"[[:space:]]*:[[:space:]]*(2|"2")[[:space:]]*[,}]'; then
         log_info "终端已在线。"
         return 0
     fi
-    log_warn "认证未成功；服务器未返回成功状态。"
+    # 只记录错误码，不打印可能含有账号或密码的原始响应。
+    error_code=$(printf '%s' "$authResult" | sed -n 's/.*"ret_code"[[:space:]]*:[[:space:]]*"\{0,1\}\([0-9][0-9]*\).*/\1/p')
+    case "$authResult" in
+        *校验密码长度失败*) log_warn "认证失败：服务器校验密码长度失败，请检查编码依赖和账号配置。" ;;
+        *) log_warn "认证未成功；服务器错误码 ${error_code:-未知}。" ;;
+    esac
     return 1
 }
 
 
-if [ "${action}" = "logout" ]; then
+if [ "${action}" = "once" ]; then
+    if check_connection; then log_info "网络已认证。"; exit 0; fi
+    connect
+    exit $?
+elif [ "${action}" = "logout" ]; then
     logout
+    exit $?
 else
     retry_count=0
     wait_time=60
@@ -383,12 +467,17 @@ else
             esac
         else
             log_state "connection-offline" WARN "网络未认证或不可达，尝试重连。"
-            connect
+            if connect; then
+                retry_count=0
+                sleep "$check_interval"
+                continue
+            fi
             # 使用更兼容的方式增加retry_count
             retry_count=$(($retry_count + 1))
             wait_time=$((check_interval + retry_count * 10))
             log_debug "当前已尝试重连次数：$retry_count，等待时间：$wait_time 秒"
-            sleep $wait_time
+            [ "$wait_time" -gt 120 ] && wait_time=120
+            sleep "$wait_time"
         fi
 
         if [ $retry_count -eq $retry_limit ]; then

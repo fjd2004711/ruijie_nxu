@@ -1,8 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=netlogin-nxu
-PKG_VERSION:=1.1.1
-PKG_RELEASE:=1
+PKG_VERSION:=1.1.3
+PKG_RELEASE:=2
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 
 include $(INCLUDE_DIR)/package.mk
@@ -12,7 +12,7 @@ define Package/netlogin-nxu
   CATEGORY:=Network
   TITLE:=NXU NetLogin authentication service
   URL:=https://github.com/fjd2004711/ruijie_nxu
-  DEPENDS:=+curl +ca-bundle +uci +luci-base
+  DEPENDS:=+curl +ca-bundle +uci +luci-base +luci-compat
   DEFAULT:=y
   PKGARCH:=all
 endef
@@ -38,6 +38,7 @@ define Package/netlogin-nxu/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_DIR) $(1)/etc/config
+	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/view/netlogin-nxu
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/model/cbi/netlogin-nxu
 	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
@@ -45,6 +46,7 @@ define Package/netlogin-nxu/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/netlogin_openwrt.sh $(1)/usr/bin/netlogin_openwrt.sh
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/init.d/netlogin-nxu $(1)/etc/init.d/netlogin-nxu
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/etc/config/netlogin-nxu $(1)/etc/config/netlogin-nxu
+	$(INSTALL_DATA) ./luci/view/netlogin-nxu/status.htm $(1)/usr/lib/lua/luci/view/netlogin-nxu/status.htm
 	$(INSTALL_DATA) ./luci/controller/netlogin_nxu.lua $(1)/usr/lib/lua/luci/controller/netlogin_nxu.lua
 	$(INSTALL_DATA) ./luci/model/cbi/netlogin-nxu/config.lua $(1)/usr/lib/lua/luci/model/cbi/netlogin-nxu/config.lua
 	$(INSTALL_DATA) ./luci/menu.d/luci-app-netlogin-nxu.json $(1)/usr/share/luci/menu.d/luci-app-netlogin-nxu.json

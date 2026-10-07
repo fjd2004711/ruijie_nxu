@@ -1,0 +1,108 @@
+<%+header%>
+<style>
+.nxu-page{--nxu-blue:#2563eb;--nxu-ink:#263238;--nxu-panel:#364152;--nxu-muted:#91a4b0}
+.nxu-page .nxu-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px;background:var(--background-color,#fff);padding:18px 22px;border-radius:9px}
+.nxu-page .nxu-heading h2{margin:0;padding:0;background:transparent;box-shadow:none}.nxu-updated{font-size:13px;opacity:.65}
+.nxu-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:22px}
+.nxu-card{padding:19px 22px;border:1px solid rgba(128,128,128,.18);border-radius:10px;background:rgba(128,128,128,.035)}
+.nxu-label{font-size:13px;opacity:.65;margin-bottom:10px}.nxu-value{display:flex;align-items:center;gap:9px;font-size:21px;font-weight:600;line-height:1.4}
+.nxu-dot{width:9px;height:9px;border-radius:50%;background:#94a3b8;flex-shrink:0}.nxu-dot.good{background:#22c55e}.nxu-dot.warn{background:#f59e0b}.nxu-dot.bad{background:#ef4444}
+.nxu-note{font-size:12px;opacity:.65;margin-top:8px;min-height:18px}
+.nxu-console{border-radius:9px;overflow:hidden;background:var(--nxu-ink);box-shadow:0 1px 5px #0002}
+.nxu-console-head{display:flex;gap:8px;padding:14px;background:var(--nxu-panel)}
+.nxu-tab{flex:1;padding:11px 14px;border:0;border-radius:7px;background:#253041;color:#c6cbd3;font-size:14px;cursor:pointer}.nxu-tab.active{background:var(--nxu-blue);color:white;font-weight:600}
+.nxu-log{height:clamp(250px,36vh,450px);overflow:auto;padding:12px 0;color:#f1f5f9;font:13px/1.8 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;tab-size:4}
+.nxu-row{display:flex;gap:9px;padding:2px 15px;min-width:max-content}.nxu-row:hover{background:#ffffff08}
+.nxu-line{color:#607d8b;min-width:29px;text-align:right;user-select:none}.nxu-time{color:#c66df5;background:#793ba52b;padding:0 5px;border-radius:4px;white-space:nowrap}
+.nxu-level{min-width:54px;text-align:center;border-radius:4px;color:#67e8f9;background:#22d3ee20;white-space:nowrap}.nxu-level.warn{color:#fbbf24;background:#f59e0b20}.nxu-level.error{color:#fca5a5;background:#ef444425}.nxu-level.debug{color:#94a3b8;background:#94a3b820}
+.nxu-message{white-space:pre}.nxu-message.nxu-success{color:#5ee0ae}.nxu-empty{padding:50px 20px;text-align:center;color:#91a4b0;white-space:normal}
+.nxu-console-foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 16px;border-top:1px solid #ffffff12;color:var(--nxu-muted);font-size:12px}
+.nxu-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:9px;margin-top:16px}.nxu-actions .cbi-button{margin:0}.nxu-error{color:#dc2626;font-size:13px;min-height:20px;margin-top:12px}
+@media(max-width:700px){.nxu-summary{grid-template-columns:1fr;gap:9px}.nxu-card{padding:13px 17px}.nxu-log{height:360px}.nxu-actions .cbi-button{flex:1}.nxu-value{font-size:18px}}
+</style>
+<div class="cbi-map nxu-page" id="nxu-page">
+    <div class="nxu-heading"><h2>运行状态</h2><span class="nxu-updated" id="nxu-updated">正在读取状态…</span></div>
+    <div class="cbi-section">
+        <div class="nxu-summary">
+            <div class="nxu-card"><div class="nxu-label">认证进程</div><div class="nxu-value"><span class="nxu-dot" id="nxu-process-dot"></span><span id="nxu-process">检测中</span></div><div class="nxu-note" id="nxu-process-note">等待路由器响应</div></div>
+            <div class="nxu-card"><div class="nxu-label">校园网连接</div><div class="nxu-value"><span class="nxu-dot" id="nxu-network-dot"></span><span id="nxu-network">检测中</span></div><div class="nxu-note" id="nxu-network-note">读取门户认证状态</div></div>
+            <div class="nxu-card"><div class="nxu-label">持久登录</div><div class="nxu-value"><span class="nxu-dot" id="nxu-persistent-dot"></span><span id="nxu-persistent">检测中</span></div><div class="nxu-note" id="nxu-persistent-note">断线自动重新认证</div></div>
+        </div>
+        <div class="nxu-console">
+            <div class="nxu-console-head" role="tablist" aria-label="日志类型">
+                <button type="button" class="nxu-tab active" role="tab" aria-selected="true" id="nxu-events">认证日志</button>
+                <button type="button" class="nxu-tab" role="tab" aria-selected="false" id="nxu-all">全部日志</button>
+            </div>
+            <div class="nxu-log" id="nxu-log" role="log" aria-label="校园网认证日志"><div class="nxu-empty">正在加载运行日志…</div></div>
+            <div class="nxu-console-foot"><span id="nxu-count">最近 300 条记录</span><span id="nxu-refresh-state">每 5 秒刷新 · 最新记录在前</span></div>
+        </div>
+        <div class="nxu-actions">
+            <button type="button" class="cbi-button cbi-button-neutral" id="nxu-pause">停止刷新</button>
+            <button type="button" class="cbi-button cbi-button-apply" id="nxu-refresh">立即刷新</button>
+            <button type="button" class="cbi-button cbi-button-neutral" id="nxu-clear">清空显示</button>
+            <button type="button" class="cbi-button cbi-button-neutral" id="nxu-copy">复制日志</button>
+        </div>
+        <div class="nxu-error" id="nxu-error" role="status"></div>
+    </div>
+</div>
+<script type="text/javascript">
+(function(){
+    'use strict';
+    var endpoint = '<%=luci.dispatcher.build_url("admin", "services", "netlogin_nxu", "data")%>';
+    var logs='', showAll=false, paused=false, busy=false, hidden={};
+    var month={Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
+    var labels={info:'信息',warn:'警告',warning:'警告',err:'错误',error:'错误',debug:'调试'};
+    function el(id){return document.getElementById('nxu-'+id);}
+    function text(id,value){el(id).textContent=value;}
+    function dot(id,value){el(id+'-dot').className='nxu-dot '+value;}
+    function span(cls,value){var node=document.createElement('span');node.className=cls;node.textContent=value;return node;}
+    function render(){
+        var container=el('log'), oldScroll=container.scrollTop, fragment=document.createDocumentFragment(), count=0;
+        var lines=logs.split(/\r?\n/).filter(function(line){return line && !hidden[line];}).reverse();
+        lines.forEach(function(line){
+            var match=line.match(/^\w+\s+(\w+)\s+(\d+)\s+([\d:]+)\s+(\d+)\s+\S+\.(\w+)\s+ruijie-nxu:\s*(.*)$/);
+            var level=match?match[5].toLowerCase():'info', message=match?match[6]:line;
+            if(!showAll && level==='debug')return;
+            count++;
+            var row=document.createElement('div');row.className='nxu-row';row.appendChild(span('nxu-line',String(count)));
+            if(match){var day=('0'+match[2]).slice(-2);row.appendChild(span('nxu-time',match[4]+'-'+(month[match[1]]||match[1])+'-'+day+' '+match[3]));}
+            var css=level==='err'||level==='error'?'error':level==='warn'||level==='warning'?'warn':level==='debug'?'debug':'';
+            row.appendChild(span('nxu-level '+css,labels[level]||level));
+            row.appendChild(span('nxu-message'+(/认证成功|已认证|终端已在线/.test(message)?' nxu-success':''),message));fragment.appendChild(row);
+        });
+        container.textContent='';
+        if(count){container.appendChild(fragment);}else{var empty=document.createElement('div');empty.className='nxu-empty';empty.textContent=showAll?'暂无运行日志':'暂无认证事件，可切换到全部日志查看调试记录';container.appendChild(empty);}
+        container.scrollTop=oldScroll;text('count','显示 '+count+' 条 · 保留最近 300 条');
+    }
+    function update(data){
+        text('process',data.running?'运行中':'未运行');dot('process',data.running?'good':'warn');
+        text('process-note',data.enabled?'服务已启用':data.running?'服务开关关闭 · 当前为手动运行':'可在插件设置中启用服务');
+        var online=data.network==='online', offline=data.network==='offline';
+        text('network',online?'已认证':offline?'未认证':'暂时无法确认');dot('network',online?'good':offline?'bad':'warn');
+        text('network-note',online?'校园网门户确认在线':offline?'等待认证或自动重连':'门户未响应，稍后自动重试');
+        text('persistent',data.persistent?'已开启':'已关闭');dot('persistent',data.persistent?'good':'warn');
+        text('persistent-note',data.persistent?'每 '+data.interval+' 秒检测 · 断线自动重连':'仅执行一次检查或认证');
+        text('updated','更新于 '+data.updated);logs=data.logs||'';render();text('error','');
+    }
+    function refresh(){
+        if(busy)return;busy=true;el('refresh').disabled=true;
+        var request=new XMLHttpRequest();request.open('GET',endpoint,true);request.timeout=10000;
+        function finish(){busy=false;el('refresh').disabled=false;}
+        request.onload=function(){finish();try{if(request.status!==200)throw new Error();update(JSON.parse(request.responseText));}catch(e){text('error','读取失败，请检查管理页面连接或重新登录 LuCI。');}};
+        request.onerror=request.ontimeout=function(){finish();text('error','路由器暂时未响应，稍后重试。');};request.send();
+    }
+    function tab(all){showAll=all;el('events').className='nxu-tab'+(all?'':' active');el('all').className='nxu-tab'+(all?' active':'');el('events').setAttribute('aria-selected',String(!all));el('all').setAttribute('aria-selected',String(all));render();}
+    el('events').onclick=function(){tab(false);};el('all').onclick=function(){tab(true);};
+    el('pause').onclick=function(){paused=!paused;text('pause',paused?'开始刷新':'停止刷新');text('refresh-state',paused?'已暂停自动刷新':'每 5 秒刷新 · 最新记录在前');if(!paused)refresh();};
+    el('refresh').onclick=refresh;
+    el('clear').onclick=function(){logs.split(/\r?\n/).forEach(function(line){hidden[line]=true;});render();};
+    el('copy').onclick=function(){
+        var input=document.createElement('textarea');input.value=logs;input.setAttribute('readonly','');input.style.position='fixed';input.style.opacity='0';document.body.appendChild(input);input.select();
+        try{if(!document.execCommand('copy'))throw new Error();text('error','');text('copy','已复制');setTimeout(function(){text('copy','复制日志');},2000);}catch(e){text('error','复制失败，请选中日志文本后复制。');}
+        document.body.removeChild(input);
+    };
+    var timer=setInterval(function(){if(!paused&&!document.hidden)refresh();},5000);
+    window.addEventListener('beforeunload',function(){clearInterval(timer);});refresh();
+})();
+</script>
+<%+footer%>

@@ -1,219 +1,127 @@
-# 宁夏大学（NXU）校园网认证脚本
+<div align="center">
 
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![OpenWrt](https://img.shields.io/badge/OpenWrt-待实机验证-orange.svg)](netlogin_openwrt.sh)
-[![Changelog](https://img.shields.io/badge/Changelog-查看更新日志-orange.svg)](CHANGELOG.md)
+# NXU NetLogin
 
-一个用于宁夏大学校园网认证的 Linux 通用脚本，支持自动重连。当前认证页使用 NetLogin 协议。
+**宁夏大学校园网认证 · 自动重连 · OpenWrt / iStoreOS**
 
-> [!WARNING]
-> ### OpenWrt 版本尚未完成实机认证测试
->
-> `netlogin_openwrt.sh` 已完成 BusyBox `ash` 兼容性检查，但尚未在真实 OpenWrt 校园网链路上完成“获取 DHCP 地址 → 登录 → 断线重连”的端到端验证。请先在可恢复的测试环境中使用；遇到问题请附上脱敏日志和网络状态。
+支持当前 `netlogin.nxu.edu.cn` 统一认证门户，为 macOS、Linux 和路由器提供自动认证与连接监测。
 
-## 🚀 功能特性
+[![Release](https://img.shields.io/github/v/release/fjd2004711/ruijie_nxu?color=6366f1)](https://github.com/fjd2004711/ruijie_nxu/releases/latest)
+[![Build IPK](https://github.com/fjd2004711/ruijie_nxu/actions/workflows/build-ipk.yml/badge.svg?branch=main)](https://github.com/fjd2004711/ruijie_nxu/actions/workflows/build-ipk.yml)
+[![OpenWrt](https://img.shields.io/badge/OpenWrt%20%2F%20iStoreOS-24.10-2563eb)](#实测状态)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-* 🖥️ **通用性** - 适用于各种 Linux 系统，包括 OpenWrt/LEDE 路由器系统
-* 🔄 **自动重连** - 智能监测网络状态，断线时自动尝试重新连接
-* 🌐 **当前认证页支持** - 适配统一认证账号登录
-* 🛑 **下线支持** - 提供便捷的下线操作
-* 📊 **日志管理** - 使用 OpenWrt 系统日志，支持不同级别且不会持续写入闪存
-* 🔌 **兼容性** - 提供标准 bash 版本和 OpenWrt 兼容版本
+[下载 IPK](https://github.com/fjd2004711/ruijie_nxu/releases/latest) · [快速安装](#快速安装) · [界面预览](#界面预览) · [更新日志](CHANGELOG.md)
 
-## 当前验证状态
+</div>
 
-| 脚本 | 状态 |
+## 功能亮点
+
+| 功能 | 说明 |
 | --- | --- |
-| `netlogin.sh` | 已在 macOS 的当前统一认证页面实测登录成功。 |
-| `netlogin_openwrt.sh` | 已通过 `sh -n` 语法检查，尚未完成 OpenWrt 实机登录、下线及重连测试。 |
+| 自动认证与重连 | 默认每 5 秒检查门户在线状态；失败时逐步退避，最长等待 120 秒。 |
+| 出口识别 | 优先使用门户看到的 IP / MAC，兼容 NAT 后的电脑与路由器 WAN。 |
+| 精简固件适配 | 缺少 `base64` 时使用纯 `awk` 编码，保留 BusyBox ash 兼容性。 |
+| LuCI 状态页 | 认证进程、校园网连接和持久登录分别展示，支持彩色日志与实时刷新。 |
+| 有界系统日志 | 使用 OpenWrt `logd` 环形缓冲区，支持日志过滤、暂停和复制。 |
+| HTTPS 认证 | 认证请求直接连接校园网门户，绕过环境代理并保留证书校验。 |
 
-## 📋 使用说明
+## 界面预览
 
-### 版本选择
+### 运行状态
 
-本项目提供两套认证协议、共四个脚本。`ruijie_nxu.sh` 与 `ruijie_nxu_openwrt.sh` 是**旧版认证系统的兼容脚本**，仅供仍使用旧认证页的接入口继续使用，不再为当前统一认证页更新。当前 `netlogin.nxu.edu.cn` 认证页请使用 NetLogin 脚本。
+连接状态一目了然。认证日志突出成功与告警信息，切换“全部日志”可查看调试记录。
 
-| 认证系统 | 标准 Linux（bash） | OpenWrt/LEDE（ash） |
-| --- | --- | --- |
-| 旧版认证系统（兼容保留） | `ruijie_nxu.sh` | `ruijie_nxu_openwrt.sh` |
-| 当前 NetLogin 认证系统 | `netlogin.sh` | `netlogin_openwrt.sh` |
+<p align="center">
+  <img src="docs/images/status.png" alt="NXU NetLogin 运行状态与彩色认证日志" width="100%" />
+</p>
 
-NetLogin 脚本会从 `netlogin.nxu.edu.cn` 读取当前页面配置，并使用 WAN 实际出口 IP 与 MAC 认证；密码只在运行时使用，不写入日志。当前统一认证页不再区分运营商，命令中的第一个 `service` 参数仅为兼容旧用法而保留，建议填写 `campus`。
+### 插件配置
 
-根据您的系统环境选择合适的版本：
-* 如果您在普通 Linux 桌面或服务器上使用，请选择对应的 bash 版本
-* 如果您在 OpenWrt 路由器上使用，请选择对应的 OpenWrt 版本
-* 看见“统一认证账号/统一认证密码”页面时，请使用 `netlogin.sh` 或 `netlogin_openwrt.sh`
+在 LuCI 中设置服务开关、持久登录、账号密码、日志级别和检测间隔。
 
-### 配置权限
+<p align="center">
+  <img src="docs/images/configuration.png" alt="NXU NetLogin 插件配置页面，账号已遮盖" width="760" />
+</p>
 
-首先确保脚本具有执行权限：
+## 快速安装
 
-```bash
-# 标准Linux系统
-sudo chmod 755 netlogin.sh
+### OpenWrt / iStoreOS：推荐 IPK
 
-# OpenWrt系统
-chmod 755 netlogin_openwrt.sh
-```
+1. 从 [最新 Release](https://github.com/fjd2004711/ruijie_nxu/releases/latest) 下载 `netlogin-nxu_*.ipk`。
+2. 在 LuCI 软件包页面上传并安装，或通过 SSH 执行：
 
-### 基本使用
-
-脚本的基本语法如下：
-
-```bash
-# 当前 NetLogin（普通 Linux / OpenWrt）
-./netlogin.sh campus <用户名> <密码> [action] [log_level]
-./netlogin_openwrt.sh campus <用户名> <密码> [action] [log_level]
-```
-
-#### 参数说明
-
-| 参数 | 说明 | 可选值 | 默认值 |
-|------|------|--------|--------|
-| 服务提供商 | 为保持命令兼容而保留 | `campus` | 无(必填) |
-| 用户名 | 您的上网账号 | - | 无(必填) |
-| 密码 | 您的账号密码 | - | 无(必填) |
-| action | 执行的操作 | 留空(正常连接)、logout(下线) | 留空 |
-| log_level | 日志记录级别 | ERROR、WARN、INFO、DEBUG | INFO |
-
-脚本会每隔 5 秒检测一次网络状态，如果检测到断线会自动尝试重连。
-
-### 📝 使用示例
-
-#### Linux系统使用示例
-
-```bash
-# 连接校园网
-sudo ./netlogin.sh campus username password
-
-# 使用DEBUG级别记录详细日志
-sudo ./netlogin.sh campus username password "" DEBUG
-
-# 只记录错误信息
-sudo ./netlogin.sh campus username password "" ERROR
-
-# 注销校园网连接
-sudo ./netlogin.sh campus username password logout
-```
-
-#### OpenWrt系统使用示例
-
-```bash
-# 连接校园网
-./netlogin_openwrt.sh campus username password
-
-# 当前认证页面（netlogin.nxu.edu.cn）
-./netlogin_openwrt.sh campus username password
-
-# 在后台长期运行（推荐）
-/usr/bin/netlogin_openwrt.sh campus username password "" INFO &
-
-# 注销校园网连接
-./netlogin_openwrt.sh campus username password logout
-```
-
-### BleachWrt/精简OpenWrt 系统支持
-
-对于BleachWrt等精简版OpenWrt系统：
-
-1. **特殊适配**：脚本已针对缺少`stat`命令的系统进行了适配，可以使用`ls -l`或`wc -c`替代获取文件大小
-
-2. **后台持续运行**：使用以下方式确保脚本在后台持续运行
-   ```bash
-   nohup /usr/bin/netlogin_openwrt.sh campus username password "" INFO > /dev/null 2>&1 &
+   ```sh
+   opkg install /tmp/netlogin-nxu_*.ipk
    ```
 
-3. **检查脚本运行状态**：
-   ```bash
-   ps | grep netlogin_openwrt | grep -v grep
-   ```
+3. 打开 **服务 → NXU NetLogin → 插件设置**（部分已缓存的菜单显示为“配置”）。
+4. 填写校园网账号和密码，开启“启用服务”和“持久登录”，保存并应用。
+5. 在 **运行状态** 页面确认认证进程“运行中”、校园网连接“已认证”。
 
-### 📊 日志级别说明
+安装包包含认证脚本、`procd` 服务和 LuCI 页面，架构标记为 `all`。依赖由 `opkg` 安装，包括 `curl`、`ca-bundle`、`uci`、`luci-base` 和 `luci-compat`。
 
-脚本支持四种日志级别，可以根据需要进行选择：
+账号密码保存在路由器的 `/etc/config/netlogin-nxu`，该文件权限为 `600`。升级保留已有配置；仓库及发布包使用空账号配置。
 
-| 日志级别 | 说明 | 使用场景 |
-|---------|------|---------|
-| `ERROR` | 只显示致命错误信息 | 只关注可能导致程序崩溃的严重问题 |
-| `WARN`  | 显示警告和错误信息 | 关注可能存在的问题和错误 |
-| `INFO`  | 显示一般信息、警告和错误 | 日常使用(默认级别) |
-| `DEBUG` | 显示所有详细的调试信息 | 故障排查和开发调试 |
+### macOS / Linux：直接运行脚本
 
-### 📁 日志管理
-
-OpenWrt 版本使用系统 `logd` 环形日志，不创建不断增长的 `/var/log` 文件：
+下载 [netlogin.sh](netlogin.sh)，使用系统 Bash 运行：
 
 ```sh
+chmod +x netlogin.sh
+
+# 持续运行，断线后自动重连
+./netlogin.sh campus '你的账号' '你的密码'
+
+# 单次检查或认证，完成后退出
+./netlogin.sh campus '你的账号' '你的密码' once
+
+# 注销校园网连接
+./netlogin.sh campus '你的账号' '你的密码' logout
+```
+
+需要详细日志时，在操作参数后指定 `DEBUG`：
+
+```sh
+./netlogin.sh campus '你的账号' '你的密码' '' DEBUG
+```
+
+> 运行前，电脑或路由器的校园网出口应已取得 DHCP 地址和默认路由，并能访问认证门户。
+
+## 命令行与服务管理
+
+### 参数说明
+
+```text
+./netlogin.sh         campus <账号> <密码> [操作] [日志级别]
+./netlogin_openwrt.sh campus <账号> <密码> [操作] [日志级别]
+```
+
+| 参数 | 可选值 | 默认行为 |
+| --- | --- | --- |
+| 服务类型 | `campus` | 为兼容旧命令保留，当前统一认证页使用校园网账号。 |
+| 操作 | 留空、`once`、`logout` | 留空时持续监测并自动重连。 |
+| 日志级别 | `ERROR`、`WARN`、`INFO`、`DEBUG` | `INFO`。 |
+
+### OpenWrt 服务
+
+```sh
+# 从 UCI 配置启动认证服务
+/etc/init.d/netlogin-nxu restart
+
+# 查看进程状态及最近日志
+/etc/init.d/netlogin-nxu status
+
+# 启用开机启动
+/etc/init.d/netlogin-nxu enable
+
+# 查看校园网认证日志
 logread -e ruijie-nxu
 ```
 
-LuCI 中可在“状态 → 系统日志”查看带有 `ruijie-nxu` 标签的记录。日志缓冲区大小由 OpenWrt 系统配置控制，写满后会自动淘汰旧记录，不会持续占用闪存。
-
-## 📝 更新日志
-
-查看完整的[更新日志](CHANGELOG.md)了解项目的详细变更历史。
-
-## 💻 部署建议
-
-### 开机自启
-
-您可以将此脚本设置为开机自启，确保网络连接自动恢复：
-
-#### Linux系统使用systemd (推荐)
-
-1. 创建服务文件:
-
-```bash
-sudo nano /etc/systemd/system/netlogin.service
-```
-
-2. 添加以下内容:
-
-```
-[Unit]
-Description=NXU NetLogin Network Authentication
-After=network.target
-
-[Service]
-ExecStart=/bin/bash /path/to/netlogin.sh <服务提供商> <用户名> <密码> "" INFO
-Restart=always
-RestartSec=30
-
-[Install]
-WantedBy=multi-user.target
-```
-
-3. 启用并启动服务:
-
-```bash
-sudo systemctl enable netlogin.service
-sudo systemctl start netlogin.service
-```
-
-#### OpenWrt IPK/LuCI 配置
-
-GitHub Actions 会生成一个包，认证服务和 LuCI Web 页面已经合并其中：
-
-```text
-netlogin-nxu_*.ipk             # 认证服务 + LuCI Web 配置和状态页面
-```
-
-安装后推荐在 LuCI 的“服务 → NXU NetLogin”中配置：
-
-- 启用服务
-- 账号和密码
-- 持久登录（断线自动重连）
-- 日志级别
-- 网络检测间隔
-
-保存并应用后，服务会由 `procd` 管理并在启动时自动运行。账号和密码只保存在路由器的 `/etc/config/netlogin-nxu`，仓库和 IPK 默认不包含真实凭据。
-
-命令行安装和配置方式：
+命令行配置：
 
 ```sh
-opkg install netlogin-nxu_*.ipk
-
 uci set netlogin-nxu.main.enabled='1'
 uci set netlogin-nxu.main.persistent_login='1'
 uci set netlogin-nxu.main.service='campus'
@@ -222,79 +130,72 @@ uci set netlogin-nxu.main.password='你的密码'
 uci set netlogin-nxu.main.log_level='INFO'
 uci set netlogin-nxu.main.check_interval='5'
 uci commit netlogin-nxu
-
-/etc/init.d/netlogin-nxu enable
 /etc/init.d/netlogin-nxu restart
-/etc/init.d/netlogin-nxu status
 ```
 
-如果暂时不使用 IPK，也可以手动运行 `netlogin_openwrt.sh`；不建议再把账号密码直接写入 `/etc/rc.local`。
+“持久登录”关闭时，脚本只执行一次检查或认证。LuCI 的“清空显示”只清除当前页面已显示的记录，系统日志仍可用于排查。
 
-#### OpenWrt 网络前提
+## 实测状态
 
-认证脚本不会替路由器建立校园网链路。运行前，请先确认 WAN（有线或无线客户端模式）已经取得校园网 DHCP 地址和默认路由；未认证时也应能访问认证门户。不同校区、AP 与有线端口的 VLAN/DHCP 策略可能不同，本项目目前不提供未经实机验证的 VLAN 配置命令。
+2026-10-07 的验证环境与结果：
 
-## OpenWrt 插件说明
+| 项目 | 环境 | 结果 |
+| --- | --- | --- |
+| `netlogin.sh` | macOS / 系统 Bash | 实际发送认证请求，服务器确认在线；NAT 出口识别和状态检测通过。 |
+| `netlogin_openwrt.sh` | iStoreOS 24.10.6 / BusyBox ash | 登录成功，日志确认断线后自动认证恢复。 |
+| LuCI | iStoreOS 24.10.6 / Argon | 状态读取、日志切换、自动刷新、暂停、清空显示和复制通过。 |
+| IPK 升级 | `1.1.3-r2`，同一路由器 | 本地包实机安装成功，账号配置保留，安装文件与仓库一致。 |
+| 回归检查 | Bash / POSIX sh | 7 项检查通过，覆盖编码回退、终端信息、状态判断与错误处理。 |
 
-项目提供一个包含服务和 LuCI 页面的一体化 OpenWrt IPK。LuCI 页面负责配置账号、密码、持久登录和检测间隔；`procd` 负责开机启动、进程拉起和异常重启；`/etc/init.d/netlogin-nxu status` 显示进程状态及最近日志。
+本次未进行路由器重启测试；其他固件的端到端验证待补充。
 
-OpenWrt 版本使用 `logger -t ruijie-nxu` 写入 `logd` 环形缓冲区，不创建无限增长的日志文件。查看日志：
+## 常见问题
+
+**服务器提示“校验密码长度失败”**
+
+先升级最新版本。旧版在精简固件缺少 `base64` 时可能发送空编码；新版自动回退到 `awk`，并在缺少必要命令时明确报错。
+
+**进程运行，但校园网未认证**
+
+查看认证日志。进程状态与门户在线状态分别检测；DHCP、路由、账号状态和门户响应都可能影响认证。
+
+**能打开状态页，配置页无法加载**
+
+确认已安装 `luci-compat`，它提供 Lua 页面需要的兼容组件。最新 IPK 已声明该依赖。
+
+**macOS 日志写在哪里？**
+
+默认使用 `/var/log/netlogin.log`，当前用户无写入权限时回退到 `/tmp/netlogin.log`。
+
+## 开发与构建
+
+凭据无关的本地检查：
 
 ```sh
-logread -e ruijie-nxu
+python3 -m unittest discover -s tests
+bash -n netlogin.sh
+sh -n netlogin_openwrt.sh
 ```
 
-日志缓冲区由 OpenWrt 系统统一限制，写满后自动淘汰旧记录，不会持续占用闪存。
+[GitHub Actions](https://github.com/fjd2004711/ruijie_nxu/actions/workflows/build-ipk.yml) 使用 OpenWrt 24.10.2 x86/64 SDK 构建一个包含 LuCI 的 IPK；SDK 目标用于解析依赖，包本身不含架构相关二进制。工作流先执行语法和回归检查，再上传 `netlogin-nxu-ipk` 制品。
 
-### IPK 构建
-
-仓库内的 `.github/workflows/build-ipk.yml` 固定使用 OpenWrt 24.10.2 x86/64 SDK 自动构建。推送包含脚本或 `package/netlogin-nxu/` 的提交后，Actions 只上传一个 `netlogin-nxu_*.ipk` 制品；依赖由路由器的 `opkg` 软件源自动解决，也可以在 Actions 页面手动运行。
-
-本地构建需要与目标固件匹配的 OpenWrt SDK：
+在匹配的 OpenWrt SDK 中手动构建：
 
 ```sh
-make menuconfig
 make package/netlogin-nxu/compile V=s
 ```
 
-该包为 `PKGARCH:=all`，不包含架构相关二进制；SDK 的目标架构只用于解析 `curl`、`ca-bundle` 和 LuCI 依赖。
+## 旧认证系统
 
-## 🤝 贡献
+仍使用旧锐捷认证页的接入口，可使用兼容保留的脚本：
 
-欢迎提交问题报告和功能建议！如果您想贡献代码，请提交 Pull Request。
+| 协议 | Bash | OpenWrt / ash |
+| --- | --- | --- |
+| 当前 NetLogin | [netlogin.sh](netlogin.sh) | [netlogin_openwrt.sh](netlogin_openwrt.sh) |
+| 旧版锐捷 | [ruijie_nxu.sh](ruijie_nxu.sh) | [ruijie_nxu_openwrt.sh](ruijie_nxu_openwrt.sh) |
 
-## 📜 许可证
+当前统一认证门户请使用 NetLogin 版本。
 
-本项目采用 MIT 许可证 - 详情请参见 [LICENSE](LICENSE) 文件。
+## 许可证
 
-## 📊  常见问题与解决方案
-
-
-1. **脚本无法执行 (not found)**
-   - 确认脚本路径正确 `ls -la /usr/bin/netlogin_openwrt.sh`
-   - 确认脚本有执行权限 `chmod 755 /usr/bin/netlogin_openwrt.sh`
-   - 检查脚本第一行是否为 `#!/bin/sh`
-   - 直接使用绝对路径运行 `/usr/bin/netlogin_openwrt.sh`
-
-2. **查看 OpenWrt 日志**
-   - 使用 `logread -e ruijie-nxu` 查看认证脚本日志
-   - LuCI 中打开“状态 → 系统日志”查看同一批日志
-   - 如需调整缓冲区大小，可检查 `uci get system.@system[0].log_size`
-
-3. **curl 命令失败**
-   - 确认已安装 curl: `opkg update && opkg install curl`
-   - 检查基本网络连接: `ping 8.8.8.8`
-
-4. **脚本启动后自动退出**
-   - 尝试使用DEBUG级别运行，获取更多信息: 
-     `./netlogin_openwrt.sh <服务提供商> <用户名> <密码> "" DEBUG`
-
-### 检查日志
-
-查看脚本输出日志，可以帮助排查问题：
-
-```sh
-logread -e ruijie-nxu
-```
-
-脚本不会修改 `/var` 的全局权限，也不要求用户手动创建日志目录。
+[Apache License 2.0](LICENSE)

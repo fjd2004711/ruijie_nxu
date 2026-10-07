@@ -2,9 +2,12 @@ name: Build OpenWrt IPK
 
 on:
   push:
+    branches: [main]
     paths:
       - 'netlogin_openwrt.sh'
       - 'package/netlogin-nxu/**'
+      - 'tests/**'
+      - 'netlogin.sh'
       - '.github/workflows/build-ipk.yml'
   workflow_dispatch:
 
@@ -16,7 +19,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Check the current OpenWrt script
-        run: test -x netlogin_openwrt.sh
+        run: |
+          test -x netlogin_openwrt.sh
+          sh -n netlogin_openwrt.sh
+          bash -n netlogin.sh
+          python3 -m unittest discover -s tests
 
       - name: Build package with the OpenWrt SDK
         uses: openwrt/gh-action-sdk@v8
