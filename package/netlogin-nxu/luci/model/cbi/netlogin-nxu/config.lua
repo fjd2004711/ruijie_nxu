@@ -43,6 +43,21 @@ interval.default = "5"
 interval.rmempty = false
 interval.description = translate("建议 5 秒或更高，避免频繁请求认证页面。")
 
+local failures = s:option(Value, "max_failures", translate("连续失败上限"))
+failures.datatype = "uinteger"
+failures.default = "5"
+failures.rmempty = false
+failures.description = translate("连续被服务器拒绝登录达到此次数后暂停自动重试，避免密码错误导致账号被锁定；填 0 表示不限制。")
+
+local unit = s:option(ListValue, "flow_unit", translate("流量单位"))
+unit:value("kb", translate("KB（1 单位 = 1024 字节，Dr.COM 惯例）"))
+unit:value("word", translate("4 字节（1 单位 = 4 字节）"))
+unit:value("byte", translate("字节"))
+unit:value("mb", translate("MB"))
+unit.default = "kb"
+unit.rmempty = false
+unit.description = translate("门户返回的已用流量未标明单位。若状态页显示的流量与校园网自助服务里的数值相差悬殊，请切换此项；状态页流量旁的原始数值可用于对照。")
+
 function m.on_after_commit(self)
     sys.call("/etc/init.d/netlogin-nxu restart >/dev/null 2>&1")
 end

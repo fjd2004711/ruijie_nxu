@@ -102,6 +102,7 @@ chmod +x netlogin.sh
 | 服务类型 | `campus` | 为兼容旧命令保留，当前统一认证页使用校园网账号。 |
 | 操作 | 留空、`once`、`logout` | 留空时持续监测并自动重连。 |
 | 日志级别 | `ERROR`、`WARN`、`INFO`、`DEBUG` | `INFO`。 |
+| 连续失败上限 | 数字，`0` 为不限制 | `5`。连续被服务器拒绝登录达到次数后暂停自动重试，防止密码错误导致账号被锁定；在 LuCI 点击「立即认证」或重启服务后恢复。 |
 
 ### OpenWrt 服务
 
@@ -129,6 +130,7 @@ uci set netlogin-nxu.main.username='你的账号'
 uci set netlogin-nxu.main.password='你的密码'
 uci set netlogin-nxu.main.log_level='INFO'
 uci set netlogin-nxu.main.check_interval='5'
+uci set netlogin-nxu.main.max_failures='5'
 uci commit netlogin-nxu
 /etc/init.d/netlogin-nxu restart
 ```

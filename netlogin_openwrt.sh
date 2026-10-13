@@ -6,7 +6,7 @@ export LC_ALL
 
 # 宁夏大学校园网 NetLogin 认证脚本（OpenWrt/ash 版本）
 # 命令行：./netlogin_openwrt.sh <服务提供商> <用户名> <密码> [action] [log_level]
-# 服务模式：./netlogin_openwrt.sh --uci
+# 服务模式：./netlogin_openwrt.sh --uci [once|logout]
 uci_get() {
     uci_value=$(uci -q get "$1" 2>/dev/null) || uci_value=""
     if [ -n "$uci_value" ]; then
@@ -24,10 +24,11 @@ if [ "$1" = "--uci" ]; then
     service=$(uci_get netlogin-nxu.main.service campus)
     username=$(uci_get netlogin-nxu.main.username "")
     password=$(uci_get netlogin-nxu.main.password "")
-    action=""
+    action="${2:-}"
     log_level=$(uci_get netlogin-nxu.main.log_level INFO)
     persistent_login=$(uci_get netlogin-nxu.main.persistent_login 1)
     check_interval=$(uci_get netlogin-nxu.main.check_interval 5)
+    max_failures=$(uci_get netlogin-nxu.main.max_failures 5)
 else
     if [ "$#" -lt 3 ]; then
         echo "使用方法: $0 <服务提供商> <用户名> <密码> [action] [log_level]"
@@ -41,6 +42,7 @@ else
     log_level="${5:-INFO}"
     persistent_login=1
     check_interval=5
+    max_failures=5
 fi
 
 if [ -z "$username" ] || [ -z "$password" ]; then
@@ -57,6 +59,16 @@ case "$check_interval" in
     ''|*[!0-9]|0) check_interval=5 ;;
 esac
 
+# 连续被服务器拒绝登录的次数上限；0 表示不限制。
+# 账号密码错误时继续重试可能导致账号被锁定，所以默认 5 次后暂停。
+case "$max_failures" in
+    ''|*[!0-9]*) max_failures=5 ;;
+esac
+
+# 暂停标志（位于 /tmp，重启即清除）：存在时后台服务不再自动登录。
+# 内容为原因：failures（连续登录失败）或 logout（手动注销）。LuCI 状态页读取它。
+PAUSE_FILE=/tmp/netlogin-nxu.paused
+
 # 日志级别枚举（数值越小，级别越高）
 # ash 不支持关联数组，使用简单的数值代替
 ERROR_LEVEL=0
@@ -65,6 +77,11 @@ INFO_LEVEL=2
 DEBUG_LEVEL=3
 
 # 获取当前设置的日志级别对应的数值
+LOG_FILE=/tmp/netlogin-nxu.log
+log_write_count=0
+last_alert=""
+last_alert_level=""
+alert_repeat=0
 current_level=$INFO_LEVEL
 case "$log_level" in
     ERROR)
@@ -99,6 +116,45 @@ retry_limit=99
 
 network_status=""
 
+# 实际输出一条日志：系统日志 + 标准输出 + /tmp 有界日志文件。
+# 用法: log_emit <级别> <消息>
+log_emit() {
+    emit_level=$1
+    emit_message=$2
+    priority="info"
+    case "$emit_level" in
+        ERROR) priority="err" ;;
+        WARN) priority="warning" ;;
+        DEBUG) priority="debug" ;;
+    esac
+
+    # OpenWrt 的 logd 使用有界环形缓冲区，不写入不断增长的日志文件。
+    if command -v logger >/dev/null 2>&1; then
+        logger -t ruijie-nxu -p "user.$priority" "$emit_message" 2>/dev/null
+    fi
+    # 系统日志环形缓冲可能被其他服务挤掉低频的 INFO 记录，
+    # 因此另存一份有界日志供 LuCI 状态页读取（位于 /tmp，不占用闪存）。
+    printf '%s user.%s ruijie-nxu: %s\n' "$(date '+%a %b %e %H:%M:%S %Y')" "$priority" "$emit_message" >> "$LOG_FILE" 2>/dev/null
+    log_write_count=$((log_write_count + 1))
+    if [ "$log_write_count" -ge 50 ]; then
+        log_write_count=0
+        if tail -n 300 "$LOG_FILE" > "$LOG_FILE.tmp" 2>/dev/null; then
+            mv "$LOG_FILE.tmp" "$LOG_FILE" 2>/dev/null
+        fi
+    fi
+    echo "[$emit_level] $emit_message"
+}
+
+# 补记被抑制的重复告警次数。
+log_flush_repeat() {
+    if [ "$alert_repeat" -gt 0 ]; then
+        flush_count=$alert_repeat
+        alert_repeat=0
+        log_emit "$last_alert_level" "上一条告警已重复 $flush_count 次。"
+    fi
+    last_alert=""
+}
+
 # 记录日志的函数
 # 用法: log_message <级别> <消息>
 log_message() {
@@ -107,38 +163,31 @@ log_message() {
     log_level_value=3  # 默认为DEBUG级别
 
     case "$level" in
-        ERROR)
-            log_level_value=$ERROR_LEVEL
-            ;;
-        WARN)
-            log_level_value=$WARN_LEVEL
-            ;;
-        INFO)
-            log_level_value=$INFO_LEVEL
-            ;;
-        DEBUG)
-            log_level_value=$DEBUG_LEVEL
-            ;;
+        ERROR) log_level_value=$ERROR_LEVEL ;;
+        WARN) log_level_value=$WARN_LEVEL ;;
+        INFO) log_level_value=$INFO_LEVEL ;;
+        DEBUG) log_level_value=$DEBUG_LEVEL ;;
     esac
 
     # 只有当消息的日志级别小于或等于当前设置的日志级别时才记录。
-    # OpenWrt 的 logd 使用有界环形缓冲区，不写入不断增长的日志文件。
-    if [ "$log_level_value" -le "$current_level" ]; then
-        priority="info"
-        case "$level" in
-            ERROR) priority="err" ;;
-            WARN) priority="warning" ;;
-            DEBUG) priority="debug" ;;
-        esac
+    [ "$log_level_value" -le "$current_level" ] || return 0
 
-        if command -v logger >/dev/null 2>&1; then
-            logger -t ruijie-nxu -p "user.$priority" "$message" 2>/dev/null
+    # 校园网掉线时重连会反复产生同一条告警；连续相同的 WARN/ERROR 只记一次，
+    # 内容变化时补一条重复次数，避免刷屏并把有用的 INFO 记录挤出缓冲。
+    if [ "$log_level_value" -le "$WARN_LEVEL" ]; then
+        if [ "$level|$message" = "$last_alert" ]; then
+            alert_repeat=$((alert_repeat + 1))
+            return 0
         fi
-        echo "[$level] $message"
+        log_flush_repeat
+        last_alert="$level|$message"
+        last_alert_level="$level"
+    elif [ "$level" = "INFO" ]; then
+        log_flush_repeat
     fi
+    log_emit "$level" "$message"
 }
 
-# 便捷的日志函数
 log_error() {
     log_message "ERROR" "$1"
 }
@@ -164,6 +213,11 @@ log_state() {
     [ "$last_log_state" = "$state" ] && return
     last_log_state="$state"
     log_message "$level" "$message"
+}
+
+# 门户都连不上说明 WAN/校园网链路有问题，此时提交登录只会失败，应等待链路恢复。
+portal_reachable() {
+    portal_status >/dev/null 2>&1
 }
 
 check_connection() {
@@ -349,7 +403,46 @@ logout() {
     return 1
 }
 
+# 门户按终端（IP/MAC）保存会话：终端已在线时，换了配置里的账号也不会重新登录。
+# 如果门户当前在线的账号与配置不一致，先注销再用配置账号登录。
+# 依赖 check_connection 刚刚保存的 status_page；每种不一致只尝试切换一次，避免反复注销。
+switch_tried=0
+ensure_configured_account() {
+    online_uid=$(json_string "$status_page" uid)
+    if [ -z "$online_uid" ] || [ "$online_uid" = "$username" ]; then
+        switch_tried=0
+        return 0
+    fi
+    if [ "$switch_tried" = "1" ]; then
+        log_state "account-mismatch" WARN "切换账号后门户仍显示其他账号在线；请在门户自助页确认该终端是否被其他账号绑定。"
+        return 0
+    fi
+    switch_tried=1
+    log_warn "门户当前在线账号与配置的账号不一致，先注销再用配置账号登录。"
+    logout || return 1
+    # 等门户确认下线；若注销后立刻又在线，多半是无感知认证（MAC 绑定）抢先用旧账号重新登录。
+    wait_offline=0
+    while [ "$wait_offline" -lt 5 ]; do
+        sleep 1
+        check_connection || break
+        wait_offline=$((wait_offline + 1))
+    done
+    if [ "$wait_offline" -ge 5 ]; then
+        log_error "注销后门户仍显示在线，疑似被无感知认证/MAC 绑定自动重新登录；请到自助服务（netself.nxu.edu.cn）解除该终端绑定或关闭无感知认证。"
+        return 1
+    fi
+    connect || return 1
+    check_connection
+    online_uid=$(json_string "$status_page" uid)
+    if [ -n "$online_uid" ] && [ "$online_uid" != "$username" ]; then
+        log_error "登录后在线的仍不是配置的账号，疑似 MAC 绑定到了其他账号；请到自助服务（netself.nxu.edu.cn）解除该终端绑定后再试。"
+        return 1
+    fi
+    return 0
+}
+
 connect() {
+    connect_rejected=0
     if ! get_terminal_info; then
         log_error "无法获取到认证服务器的出口 IP 或网卡 MAC。"
         return 1
@@ -407,34 +500,48 @@ connect() {
         return 1
     fi
     if printf '%s' "$authResult" | grep -qE '"result"[[:space:]]*:[[:space:]]*(1|"ok")[[:space:]]*[,}]'; then
+        rm -f "$PAUSE_FILE"
         log_info "认证成功。"
         return 0
     fi
     if printf '%s' "$authResult" | grep -qE '"ret_code"[[:space:]]*:[[:space:]]*(2|"2")[[:space:]]*[,}]'; then
+        rm -f "$PAUSE_FILE"
         log_info "终端已在线。"
         return 0
     fi
+    connect_rejected=1
     # 只记录错误码，不打印可能含有账号或密码的原始响应。
     error_code=$(printf '%s' "$authResult" | sed -n 's/.*"ret_code"[[:space:]]*:[[:space:]]*"\{0,1\}\([0-9][0-9]*\).*/\1/p')
     case "$authResult" in
         *校验密码长度失败*) log_warn "认证失败：服务器校验密码长度失败，请检查编码依赖和账号配置。" ;;
-        *) log_warn "认证未成功；服务器错误码 ${error_code:-未知}。" ;;
+        *)
+            # 只取 msg 字段（不含请求参数），帮助判断是密码错误、账号绑定还是终端数超限。
+            server_msg=$(json_string "$authResult" msg | cut -c 1-80)
+            log_warn "认证未成功；服务器错误码 ${error_code:-未知}${server_msg:+，提示：$server_msg}。"
+            ;;
     esac
     return 1
 }
 
 
 if [ "${action}" = "once" ]; then
-    if check_connection; then log_info "网络已认证。"; exit 0; fi
+    if check_connection; then
+        ensure_configured_account && { rm -f "$PAUSE_FILE"; log_info "网络已认证。"; exit 0; }
+        exit 1
+    fi
     connect
     exit $?
 elif [ "${action}" = "logout" ]; then
-    logout
-    exit $?
+    # 先暂停后台自动登录，否则注销后守护进程会立刻重新认证。
+    echo logout > "$PAUSE_FILE" 2>/dev/null
+    if logout; then exit 0; fi
+    rm -f "$PAUSE_FILE"
+    exit 1
 else
     retry_count=0
     wait_time=60
-    log_info "启动校园网认证服务，日志级别: $log_level"
+    rm -f "$PAUSE_FILE"
+    log_info "启动校园网认证服务，日志级别 $log_level，检测间隔 ${check_interval} 秒。"
     log_debug "详细日志模式已启用"
 
     if [ "$persistent_login" != "1" ]; then
@@ -448,42 +555,72 @@ else
     fi
 
     # 进入主循环
+    offline_since=""
+    unreachable_count=0
+    failure_count=0
     while true; do
-
         if check_connection; then
-            case "${network_status}" in
-                "online")
-                    log_state "connection-online" INFO "网络已认证，等待下一次检测。"
-                    # 如果网络恢复，重置重试次数和等待时间
-                    retry_count=0
-                    wait_time=5
-                    log_debug "重置重试计数器和等待时间"
-                    sleep "$check_interval"
-                    ;;
-                "offline_or_pending_auth")
-                    log_info "网络离线或未认证，尝试进行认证。"
-                    connect  # 调用认证函数进行认证尝试
-                    ;;
-            esac
-        else
-            log_state "connection-offline" WARN "网络未认证或不可达，尝试重连。"
-            if connect; then
-                retry_count=0
-                sleep "$check_interval"
-                continue
+            if [ -n "$offline_since" ]; then
+                log_info "网络已恢复，中断约 $(( $(date +%s) - offline_since )) 秒。"
+                offline_since=""
             fi
-            # 使用更兼容的方式增加retry_count
-            retry_count=$(($retry_count + 1))
-            wait_time=$((check_interval + retry_count * 10))
-            log_debug "当前已尝试重连次数：$retry_count，等待时间：$wait_time 秒"
-            [ "$wait_time" -gt 120 ] && wait_time=120
-            sleep "$wait_time"
+            ensure_configured_account || log_debug "账号切换未完成，下个周期重试。"
+            log_state "connection-online" INFO "网络已认证，持续监测中。"
+            retry_count=0
+            unreachable_count=0
+            failure_count=0
+            rm -f "$PAUSE_FILE"
+            log_debug "状态检测：在线，${check_interval} 秒后再次检测。"
+            sleep "$check_interval"
+            continue
         fi
 
-        if [ $retry_count -eq $retry_limit ]; then
+        [ -n "$offline_since" ] || offline_since=$(date +%s)
+
+        if ! portal_reachable; then
+            unreachable_count=$((unreachable_count + 1))
+            wait_time=$((check_interval + unreachable_count * 5))
+            [ "$wait_time" -gt 60 ] && wait_time=60
+            log_state "portal-unreachable" WARN "无法连接认证门户 ${portal_host}；请确认已接入校园网且 WAN 已获取地址。"
+            log_debug "门户不可达，第 ${unreachable_count} 次，${wait_time} 秒后重试。"
+            sleep "$wait_time"
+            continue
+        fi
+        unreachable_count=0
+
+        if [ -f "$PAUSE_FILE" ]; then
+            if [ "$(cat "$PAUSE_FILE" 2>/dev/null)" = "logout" ]; then
+                log_state "paused-logout" INFO "已手动注销，自动登录已暂停；在 LuCI 点击「立即认证」或重启服务后恢复。"
+            else
+                log_state "paused-failures" ERROR "连续登录失败已暂停重试；请检查账号密码，在 LuCI 点击「立即认证」或重启服务后恢复。"
+            fi
+            sleep 30
+            continue
+        fi
+
+        log_state "connection-offline" WARN "网络未认证，尝试登录。"
+        if connect; then
+            retry_count=0
+            sleep "$check_interval"
+            continue
+        fi
+        retry_count=$(($retry_count + 1))
+        if [ "$connect_rejected" = "1" ]; then
+            failure_count=$((failure_count + 1))
+            if [ "$max_failures" -gt 0 ] && [ "$failure_count" -ge "$max_failures" ]; then
+                echo failures > "$PAUSE_FILE" 2>/dev/null
+                log_error "连续 ${failure_count} 次被服务器拒绝登录，已暂停自动重试以避免账号被锁定。"
+                continue
+            fi
+        fi
+        wait_time=$((check_interval + retry_count * 10))
+        [ "$wait_time" -gt 120 ] && wait_time=120
+        log_debug "第 ${retry_count} 次登录失败，${wait_time} 秒后重试。"
+        if [ $retry_count -ge $retry_limit ]; then
             log_error "尝试重连达到最大次数，退出。"
             break
         fi
+        sleep "$wait_time"
     done
 
     # 退出前记录日志
