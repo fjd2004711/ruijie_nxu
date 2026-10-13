@@ -121,12 +121,12 @@
     el('refresh').onclick=refresh;
     function act(name,label,confirmText){
         if(confirmText&&!window.confirm(confirmText))return;
-        var buttons=[el('login'),el('logout')];buttons.forEach(function(b){b.disabled=true;});text('error',label+'中，请稍候…');
-        var request=new XMLHttpRequest();request.open('POST',base+name,true);request.timeout=90000;
+        var buttons=[el('login'),el('logout')];buttons.forEach(function(b){b.disabled=true;});
+        var request=new XMLHttpRequest();request.open('POST',base+name,true);request.timeout=15000;
         request.setRequestHeader('Content-Type','application/x-www-form-urlencoded');
-        function done(message){buttons.forEach(function(b){b.disabled=false;});text('error',message);refresh();}
-        request.onload=function(){var ok=false;try{ok=JSON.parse(request.responseText).ok;}catch(e){}done(ok?label+'成功':label+'失败，详见运行日志。');};
-        request.onerror=request.ontimeout=function(){done(label+'未完成，请查看运行日志。');};
+        function done(message){text('error',message);setTimeout(function(){buttons.forEach(function(b){b.disabled=false;});refresh();},3000);}
+        request.onload=function(){var ok=false;try{ok=JSON.parse(request.responseText).ok;}catch(e){}done(ok?label+'已开始，进度见运行日志（注销约需 1～2 分钟，期间会短暂断网）':label+'请求被拒绝，请刷新页面后重试。');};
+        request.onerror=request.ontimeout=function(){done(label+'请求未送达，请稍后重试。');};
         request.send('token='+encodeURIComponent(token));
     }
     el('login').onclick=function(){act('login','认证');};

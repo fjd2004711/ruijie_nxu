@@ -403,6 +403,88 @@ logout() {
     return 1
 }
 
+# 这个门户开启了 MAC 绑定（页面 unBindMac=1），页面上的「注销」实际调用 mac/unbind
+# （注销并解绑）。只调用 portal/logout 时接口虽返回成功，会话却仍在线，
+# 换账号会一直沿用旧账号。因此优先走 mac/unbind，失败再回退到普通注销。
+logout_with_unbind() {
+    if ! get_terminal_info || ! load_portal_config; then
+        log_error "无法获取认证页面配置，注销失败。"
+        return 1
+    fi
+    portal_key=$(portal_key_from_ip "$terminal_ip")
+    unbind_account=$(json_string "$terminal_status" uid)
+    [ -n "$unbind_account" ] || unbind_account="$username"
+    unbind_mac=$(printf '%s' "$terminal_mac" | tr 'a-f' 'A-F')
+    unbindResult=$(curl -4 --noproxy '*' -fsS --connect-timeout 8 --max-time 15 -A "$user_agent" \
+        --resolve "${portal_host}:${portal_port}:${portal_ip}" -G "${portal_api}/mac/unbind" \
+        --data-urlencode "user_account=$(portal_encrypt "$unbind_account")" \
+        --data-urlencode "wlan_user_mac=$(portal_encrypt "$unbind_mac")" \
+        --data-urlencode "wlan_user_ip=$(portal_encrypt "$terminal_ip")" \
+        --data-urlencode "wlan_user_ipv6=" \
+        --data-urlencode "unbind_type=$(portal_encrypt '1')" \
+        --data-urlencode "uuid=" \
+        --data-urlencode "program_index=$(portal_encrypt "$portal_program")" \
+        --data-urlencode "page_index=$(portal_encrypt "$portal_page")" \
+        --data-urlencode "callback=$(portal_encrypt 'dr1')" \
+        --data-urlencode "jsVersion=$(portal_encrypt '4.X')" \
+        --data-urlencode "encrypt=1") || unbindResult=""
+    log_debug "解绑响应：${#unbindResult} 字节，$(printf '%s' "$unbindResult" | grep -oE '"(result|ret_code)"[[:space:]]*:[[:space:]]*"?[0-9a-z]+"?' | tr '\n' ' ')"
+    if printf '%s' "$unbindResult" | grep -qE '"result"[[:space:]]*:[[:space:]]*(1|"ok")[[:space:]]*[,}]'; then
+        log_info "注销并解绑 MAC 成功。"
+        return 0
+    fi
+    log_warn "注销并解绑 MAC 未成功，改用普通注销。"
+    logout
+}
+
+# 校园网在会话下线后会封锁旧的 WAN 地址：门户 443/804 端口和外网都会连接超时，
+# 只有重新获取 DHCP 地址（实测重启或 ifdown/ifup wan）才能恢复。
+# 等待注销真正生效：门户显示离线，或已经连不上门户（旧地址被封锁）。
+wait_logout_effect() {
+    waited=0
+    while [ "$waited" -lt 90 ]; do
+        sleep 3
+        waited=$((waited + 3))
+        check_connection || return 0
+    done
+    return 1
+}
+
+# 释放并重新获取 WAN 地址，随后等待门户可达。
+renew_wan() {
+    command -v ifup >/dev/null 2>&1 || return 0
+    wan_if=$(uci_get netlogin-nxu.main.wan_interface "")
+    if [ -z "$wan_if" ] && [ -n "$terminal_if" ] && command -v jsonfilter >/dev/null 2>&1; then
+        wan_if=$(ubus call network.interface dump 2>/dev/null | jsonfilter -e "@.interface[@.l3_device='$terminal_if'].interface" 2>/dev/null | head -n 1)
+    fi
+    [ -n "$wan_if" ] || wan_if=wan
+    log_info "注销后旧地址会被校园网封锁，重新获取 WAN 地址（接口 ${wan_if}）。"
+    ifdown "$wan_if" >/dev/null 2>&1
+    sleep 2
+    ifup "$wan_if" >/dev/null 2>&1
+    wait_portal=0
+    while [ "$wait_portal" -lt 30 ]; do
+        sleep 1
+        wait_portal=$((wait_portal + 1))
+        if portal_reachable; then
+            log_debug "重新获取地址后门户可达，用时 ${wait_portal} 秒。"
+            return 0
+        fi
+    done
+    log_warn "重新获取 WAN 地址后仍无法连接门户；可再试一次或重启路由器。"
+    return 1
+}
+
+# 注销并恢复网络：解绑注销 → 等待生效 → 重新获取地址。
+logout_and_recover() {
+    logout_with_unbind || return 1
+    if ! wait_logout_effect; then
+        log_error "注销后门户仍显示在线，疑似被无感知认证/MAC 绑定自动重新登录；请到自助服务（netself.nxu.edu.cn）解除该终端绑定或关闭无感知认证。"
+        return 1
+    fi
+    renew_wan
+}
+
 # 门户按终端（IP/MAC）保存会话：终端已在线时，换了配置里的账号也不会重新登录。
 # 如果门户当前在线的账号与配置不一致，先注销再用配置账号登录。
 # 依赖 check_connection 刚刚保存的 status_page；每种不一致只尝试切换一次，避免反复注销。
@@ -419,18 +501,7 @@ ensure_configured_account() {
     fi
     switch_tried=1
     log_warn "门户当前在线账号与配置的账号不一致，先注销再用配置账号登录。"
-    logout || return 1
-    # 等门户确认下线；若注销后立刻又在线，多半是无感知认证（MAC 绑定）抢先用旧账号重新登录。
-    wait_offline=0
-    while [ "$wait_offline" -lt 5 ]; do
-        sleep 1
-        check_connection || break
-        wait_offline=$((wait_offline + 1))
-    done
-    if [ "$wait_offline" -ge 5 ]; then
-        log_error "注销后门户仍显示在线，疑似被无感知认证/MAC 绑定自动重新登录；请到自助服务（netself.nxu.edu.cn）解除该终端绑定或关闭无感知认证。"
-        return 1
-    fi
+    logout_and_recover || return 1
     connect || return 1
     check_connection
     online_uid=$(json_string "$status_page" uid)
@@ -534,7 +605,7 @@ if [ "${action}" = "once" ]; then
 elif [ "${action}" = "logout" ]; then
     # 先暂停后台自动登录，否则注销后守护进程会立刻重新认证。
     echo logout > "$PAUSE_FILE" 2>/dev/null
-    if logout; then exit 0; fi
+    if logout_and_recover; then exit 0; fi
     rm -f "$PAUSE_FILE"
     exit 1
 else

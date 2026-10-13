@@ -48,8 +48,10 @@ local function run_action(argument)
         http.write_json({ ok = false })
         return
     end
-    local code = require("luci.sys").call("/usr/bin/netlogin_openwrt.sh --uci " .. argument .. " >/dev/null 2>&1")
-    http.write_json({ ok = code == 0 })
+    -- 注销后需要等待会话下线并重新获取 WAN 地址，可能超过 uhttpd 的脚本超时，所以放到后台执行，
+    -- 进度在运行日志里查看。
+    require("luci.sys").call("(/usr/bin/netlogin_openwrt.sh --uci " .. argument .. " >/dev/null 2>&1 &)")
+    http.write_json({ ok = true, started = true })
 end
 
 function action_login() run_action("once") end
