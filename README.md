@@ -6,8 +6,8 @@
 
 支持当前 `netlogin.nxu.edu.cn` 统一认证门户，为 macOS、Linux 和路由器提供自动认证与连接监测。
 
-[![Release](https://img.shields.io/github/v/release/fjd2004711/ruijie_nxu?color=6366f1&cacheSeconds=300&v=1.1.3)](https://github.com/fjd2004711/ruijie_nxu/releases/latest)
-[![Build IPK](https://github.com/fjd2004711/ruijie_nxu/actions/workflows/build-ipk.yml/badge.svg?branch=main&event=push&v=1.1.3)](https://github.com/fjd2004711/ruijie_nxu/actions/workflows/build-ipk.yml)
+[![Release](https://img.shields.io/github/v/release/fjd2004711/ruijie_nxu?color=6366f1&cacheSeconds=300&v=1.2.0)](https://github.com/fjd2004711/ruijie_nxu/releases/latest)
+[![Build IPK](https://github.com/fjd2004711/ruijie_nxu/actions/workflows/build-ipk.yml/badge.svg?branch=main&event=push&v=1.2.0)](https://github.com/fjd2004711/ruijie_nxu/actions/workflows/build-ipk.yml)
 [![OpenWrt](https://img.shields.io/badge/OpenWrt%20%2F%20iStoreOS-24.10-2563eb)](#实测状态)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
@@ -20,10 +20,13 @@
 | 功能 | 说明 |
 | --- | --- |
 | 自动认证与重连 | 默认每 5 秒检查门户在线状态；失败时逐步退避，最长等待 120 秒。 |
+| 账号切换 | 门户在线账号与配置不一致时，先注销（解绑）再用配置账号登录；需先关闭无感知认证。 |
+| 失败保护 | 连续被服务器拒绝登录达到上限（默认 5 次）后暂停重试，避免密码错误导致账号被锁定。 |
+| 状态与操作 | LuCI 状态页显示在线时长、已用流量（单位可选），并提供「立即认证」和「注销」按钮。 |
 | 出口识别 | 优先使用门户看到的 IP / MAC，兼容 NAT 后的电脑与路由器 WAN。 |
 | 精简固件适配 | 缺少 `base64` 时使用纯 `awk` 编码，保留 BusyBox ash 兼容性。 |
 | LuCI 状态页 | 认证进程、校园网连接和持久登录分别展示，支持彩色日志与实时刷新。 |
-| 有界系统日志 | 使用 OpenWrt `logd` 环形缓冲区，支持日志过滤、暂停和复制。 |
+| 有界日志 | 同时写入系统日志和 `/tmp` 下的有界日志文件（约 300 行，不占闪存），连续重复的告警只记一次。 |
 | HTTPS 认证 | 认证请求直接连接校园网门户，绕过环境代理并保留证书校验。 |
 
 ## 界面预览
@@ -44,11 +47,28 @@
   <img src="docs/images/configuration.png" alt="NXU NetLogin 插件配置页面，账号已遮盖" width="760" />
 </p>
 
+## 使用前必读：关闭无感知认证
+
+校园网的「无感知认证」（MAC 绑定）会让门户按终端 MAC 自动放行已绑定的账号。开启后，路由器注销或更换账号时，门户会立刻用**旧账号**重新放行，表现为：
+
+- 在插件里改了账号，认证后在线的仍然是原来的账号；
+- 点「注销」后很快又自动在线，或者注销并解绑返回成功但会话没有下线；
+- 日志出现「门户当前在线账号与配置的账号不一致」「注销后门户仍显示在线，疑似被无感知认证/MAC 绑定自动重新登录」。
+
+**使用本插件前，请先关闭无感知认证并解除路由器 MAC 的绑定：**
+
+1. 打开校园网自助服务系统 <https://netself.nxu.edu.cn/Self/dashboard>，用账号登录。
+2. 在终端 / MAC 管理相关菜单中关闭「无感知认证」，并解除路由器 WAN 口 MAC 的绑定（菜单名称可能随学校系统版本略有不同）。
+3. 也可以在 <https://netlogin.nxu.edu.cn/> 登录成功页面的「终端在线表」里，点击对应终端的「解除绑定」。
+4. 想换账号时，请对**原账号**执行上述操作，再在插件里改成新账号。
+
+关闭后无需其他设置：插件检测到在线账号与配置不一致时，会先注销再用配置的账号登录。
+
 ## 快速安装
 
 ### OpenWrt / iStoreOS：推荐 IPK
 
-1. 从 [最新 Release](https://github.com/fjd2004711/ruijie_nxu/releases/latest) 下载 `netlogin-nxu_*.ipk`。
+1. **先按上文关闭无感知认证。** 然后从 [最新 Release](https://github.com/fjd2004711/ruijie_nxu/releases/latest) 的附件中直接下载 `netlogin-nxu_*.ipk`（附件是原始 IPK，不是压缩包；请不要从 Actions 页面下载制品 zip）。
 2. 在 LuCI 软件包页面上传并安装，或通过 SSH 执行：
 
    ```sh
@@ -157,6 +177,27 @@ uci commit netlogin-nxu
 
 先升级最新版本。旧版在精简固件缺少 `base64` 时可能发送空编码；新版自动回退到 `awk`，并在缺少必要命令时明确报错。
 
+**换了账号，认证后在线的还是旧账号 / 注销后马上又自动在线**
+
+这是校园网「无感知认证」（MAC 绑定）造成的，见上文「使用前必读」。先在自助服务中关闭无感知认证并解除路由器 MAC 的绑定，再换账号。
+
+**注销后访问不了认证门户**
+
+注销后，旧的 WAN 地址有时无法再访问门户。点「立即认证」时脚本发现门户不可达，会自动释放并重新获取 WAN 地址（`ifdown/ifup`），门户一可达就立即登录；守护进程也会这样处理（手动注销后保持离线，不重拉）。仍无法恢复时，请不要重启，先在路由器上执行：
+
+```sh
+ip -4 addr show br-wan.1; ip -4 route get 10.10.129.197
+logread -e ruijie-nxu | tail -30
+```
+
+**状态页显示的已用流量单位不对**
+
+门户没有标明流量单位。在「插件设置 → 流量单位」中切换（KB / 4 字节 / 字节 / MB），对照校园网自助服务里的数值选择；状态页流量处悬停可看到门户原始值。
+
+**macOS 下载后解压出来的不是 IPK**
+
+IPK 本身是 gzip 压缩的归档，macOS 的归档实用工具会把从 Actions 下载的制品 zip 里的 `.ipk` 再解压一层。请从 [Release](https://github.com/fjd2004711/ruijie_nxu/releases/latest) 的附件直接下载 `.ipk`；如果仍被自动解压，可在终端用 `curl -LO <附件链接>` 下载，或在 Safari 设置中关闭「下载后打开“安全”文件」。需要从制品 zip 取文件时，用 `unzip netlogin-nxu-ipk.zip` 或 `gh run download <运行编号> -n netlogin-nxu-ipk`，不要双击。
+
 **进程运行，但校园网未认证**
 
 查看认证日志。进程状态与门户在线状态分别检测；DHCP、路由、账号状态和门户响应都可能影响认证。
@@ -179,7 +220,7 @@ bash -n netlogin.sh
 sh -n netlogin_openwrt.sh
 ```
 
-[GitHub Actions](https://github.com/fjd2004711/ruijie_nxu/actions/workflows/build-ipk.yml) 使用 OpenWrt 24.10.2 x86/64 SDK 构建一个包含 LuCI 的 IPK；SDK 目标用于解析依赖，包本身不含架构相关二进制。工作流先执行语法和回归检查，再上传 `netlogin-nxu-ipk` 制品。
+[GitHub Actions](https://github.com/fjd2004711/ruijie_nxu/actions/workflows/build-ipk.yml) 使用 OpenWrt 24.10.2 x86/64 SDK 构建一个包含 LuCI 的 IPK；SDK 目标用于解析依赖，包本身不含架构相关二进制。工作流先执行语法和回归检查，再上传 `netlogin-nxu-ipk` 制品；推送 `v*` 标签时还会自动创建 Release，附件包含 IPK、两个脚本和 `SHA256SUMS`，发布说明取自 `CHANGELOG.md` 中对应版本的条目。
 
 在匹配的 OpenWrt SDK 中手动构建：
 

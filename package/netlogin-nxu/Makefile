@@ -1,8 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=netlogin-nxu
-PKG_VERSION:=1.1.3
-PKG_RELEASE:=5
+PKG_VERSION:=1.2.0
+PKG_RELEASE:=1
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 
 include $(INCLUDE_DIR)/package.mk
@@ -18,7 +18,7 @@ define Package/netlogin-nxu
 endef
 
 define Package/netlogin-nxu/description
-  宁夏大学校园网 NetLogin OpenWrt 服务，支持 UCI 配置、procd 持久登录和系统日志。
+  宁夏大学校园网 NetLogin OpenWrt 服务，支持 UCI 配置、procd 持久登录和系统日志。使用前请先在校园网自助服务中关闭「无感知认证」（MAC 绑定），否则注销或换账号后会被旧账号立即重新登录。
 endef
 
 define Package/netlogin-nxu/conffiles

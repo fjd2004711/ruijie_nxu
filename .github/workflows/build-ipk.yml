@@ -3,6 +3,7 @@ name: Build OpenWrt IPK
 on:
   push:
     branches: [main]
+    tags: ['v*']
     paths:
       - 'netlogin_openwrt.sh'
       - 'package/netlogin-nxu/**'
@@ -10,6 +11,9 @@ on:
       - 'netlogin.sh'
       - '.github/workflows/build-ipk.yml'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -49,3 +53,38 @@ jobs:
           name: netlogin-nxu-ipk
           path: artifacts/*.ipk
           if-no-files-found: error
+
+      # 推送 v* 标签时发布 Release：附件为原始 .ipk（不经过制品 zip，避免 macOS 二次解压）。
+      - name: Prepare release notes
+        run: |
+          # 标签发布时版本取自标签，并要求与包版本一致；非标签（手动演练）取包版本。
+          pkg_version=$(sed -n 's/^PKG_VERSION:=//p' package/netlogin-nxu/Makefile)
+          case "$GITHUB_REF" in
+            refs/tags/v*)
+              version="${GITHUB_REF_NAME#v}"
+              [ "$version" = "$pkg_version" ] || { echo "标签 $GITHUB_REF_NAME 与包版本 $pkg_version 不一致"; exit 1; }
+              ;;
+            *) version="$pkg_version" ;;
+          esac
+          awk -v v="$version" '/^## /{p=($0 ~ "（" v "）")} p' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "CHANGELOG.md 中没有 ${version} 的条目"; exit 1; }
+          {
+            echo
+            echo "### 安装"
+            echo
+            echo "OpenWrt / iStoreOS 直接下载附件中的 \`.ipk\`（不是压缩包），在 LuCI 软件包页面上传安装，或执行 \`opkg install /tmp/netlogin-nxu_*.ipk\`。升级会保留已有账号配置。"
+            echo
+            echo "**使用前请先在校园网自助服务中关闭「无感知认证」，详见 README「使用前必读」。**"
+          } >> notes.md
+          cat notes.md
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp netlogin.sh netlogin_openwrt.sh artifacts/
+          (cd artifacts && sha256sum * > SHA256SUMS)
+          gh release create "$GITHUB_REF_NAME" artifacts/* \
+            --title "$GITHUB_REF_NAME · 账号切换与无感知认证说明" \
+            --notes-file notes.md --verify-tag

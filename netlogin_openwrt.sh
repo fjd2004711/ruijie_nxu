@@ -479,7 +479,7 @@ renew_wan() {
 logout_and_recover() {
     logout_with_unbind || return 1
     if ! wait_logout_effect; then
-        log_error "注销后门户仍显示在线，疑似被无感知认证/MAC 绑定自动重新登录；请到自助服务（netself.nxu.edu.cn）解除该终端绑定或关闭无感知认证。"
+        log_error "注销后门户仍显示在线，疑似被无感知认证/MAC 绑定自动重新登录；请先到自助服务（netself.nxu.edu.cn）关闭无感知认证或解除该终端绑定，详见 README「使用前必读」。"
         return 1
     fi
     return 0
@@ -506,7 +506,7 @@ ensure_configured_account() {
     check_connection
     online_uid=$(json_string "$status_page" uid)
     if [ -n "$online_uid" ] && [ "$online_uid" != "$username" ]; then
-        log_error "登录后在线的仍不是配置的账号，疑似 MAC 绑定到了其他账号；请到自助服务（netself.nxu.edu.cn）解除该终端绑定后再试。"
+        log_error "登录后在线的仍不是配置的账号，疑似 MAC 绑定到了其他账号；请先到自助服务（netself.nxu.edu.cn）关闭无感知认证或解除该终端绑定，详见 README「使用前必读」。"
         return 1
     fi
     return 0

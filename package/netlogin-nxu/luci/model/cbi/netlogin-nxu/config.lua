@@ -1,7 +1,7 @@
 local sys = require("luci.sys")
 
 local m = Map("netlogin-nxu", translate("NXU NetLogin"),
-    translate("配置校园网账号、持久登录和认证状态。密码保存在路由器的 UCI 配置中。"))
+    translate("配置校园网账号、持久登录和认证状态。密码保存在路由器的 UCI 配置中。使用前请先在校园网自助服务（netself.nxu.edu.cn）关闭「无感知认证」（MAC 绑定），否则注销或换账号后会被旧账号立即重新登录。"))
 
 local s = m:section(NamedSection, "main", "netlogin_nxu")
 s.anonymous = true
