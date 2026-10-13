@@ -1,11 +1,16 @@
 local sys = require("luci.sys")
 
 local m = Map("netlogin-nxu", translate("NXU NetLogin"),
-    translate("配置校园网账号、持久登录和认证状态。密码保存在路由器的 UCI 配置中。使用前请先在校园网自助服务（netself.nxu.edu.cn）关闭「无感知认证」（MAC 绑定），否则注销或换账号后会被旧账号立即重新登录。"))
+    translate("配置校园网账号、持久登录和认证状态。密码保存在路由器的 UCI 配置中。"))
 
 local s = m:section(NamedSection, "main", "netlogin_nxu")
 s.anonymous = true
 s.addremove = false
+
+-- 醒目的使用前提示：无感知认证（MAC 绑定）开启时，注销或换账号会被旧账号立即重新登录。
+local notice = s:option(DummyValue, "_notice")
+notice.rawhtml = true
+notice.value = [[<div style="padding:14px 18px;border-left:5px solid #f59e0b;background:#fff4db;color:#7a4300;border-radius:6px;font-size:15px;font-weight:600;line-height:1.8;max-width:760px">⚠️ 使用前必读：请先关闭「无感知认证」（MAC 绑定）<div style="font-weight:400;font-size:14px;margin-top:4px">否则注销或更换账号后，会被旧账号立即重新登录，表现为「改了账号还是旧账号在线」。请登录 <a href="https://netself.nxu.edu.cn/Self/dashboard" target="_blank" rel="noopener" style="color:#b45309;text-decoration:underline">校园网自助服务</a>，关闭无感知认证并解除路由器 MAC 的绑定；也可在认证门户登录成功页的「终端在线表」中点击「解除绑定」。</div></div>]]
 
 local enabled = s:option(Flag, "enabled", translate("启用服务"))
 enabled.default = 0

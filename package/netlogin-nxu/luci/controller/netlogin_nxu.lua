@@ -64,14 +64,11 @@ function action_data()
     local uci = require("luci.model.uci").cursor()
     local status = sys.exec("curl -4 --noproxy '*' -fsS --connect-timeout 2 --max-time 3 --resolve netlogin.nxu.edu.cn:443:10.10.129.197 'https://netlogin.nxu.edu.cn/drcom/chkstatus?callback=dr1' 2>/dev/null")
     local result = status:match('"result"%s*:%s*(%d+)%s*[,}]')
-    -- 门户状态里的 time 为本次在线分钟数，flow 为已用流量（单位见 flow_unit 设置）；
+    -- 门户状态里的 time 为累计在线分钟数（可能跨多次登录），flow 为累计已用流量（单位见 flow_unit 设置）；
     -- 带引号匹配，避免误取 oltime/olflow。仅在线时有意义。
     local minutes = result == "1" and tonumber(status:match('"time"%s*:%s*(%d+)')) or nil
     local flow = result == "1" and tonumber(status:match('"flow"%s*:%s*(%d+)')) or nil
     local login_time = result == "1" and status:match('"stime"%s*:%s*"(%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d)"') or nil
-    -- actdf/actuf 与 flow 同单位（实测 flow 约等于二者之和），可拆出下行/上行。
-    local flow_down = result == "1" and tonumber(status:match('"actdf"%s*:%s*(%d+)')) or nil
-    local flow_up = result == "1" and tonumber(status:match('"actuf"%s*:%s*(%d+)')) or nil
     -- 门户未说明 flow 的单位，交给用户按实际情况选择（默认 KB）。
     local unit_bytes = ({ kb = 1024, mb = 1048576, word = 4, byte = 1 })[uci:get("netlogin-nxu", "main", "flow_unit") or "kb"] or 1024
     local logs = sys.exec("tail -n 300 /tmp/netlogin-nxu.log 2>/dev/null")
@@ -93,8 +90,6 @@ function action_data()
         online_minutes = minutes,
         login_time = login_time,
         flow = flow,
-        flow_down = flow_down,
-        flow_up = flow_up,
         flow_unit_bytes = unit_bytes,
         updated = os.date("%H:%M:%S")
     })

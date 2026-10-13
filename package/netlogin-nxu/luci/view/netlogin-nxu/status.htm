@@ -27,7 +27,7 @@
             <div class="nxu-card"><div class="nxu-label">认证进程</div><div class="nxu-value"><span class="nxu-dot" id="nxu-process-dot"></span><span id="nxu-process">检测中</span></div><div class="nxu-note" id="nxu-process-note">等待路由器响应</div></div>
             <div class="nxu-card"><div class="nxu-label">校园网连接</div><div class="nxu-value"><span class="nxu-dot" id="nxu-network-dot"></span><span id="nxu-network">检测中</span></div><div class="nxu-note" id="nxu-network-note">读取门户认证状态</div></div>
             <div class="nxu-card"><div class="nxu-label">持久登录</div><div class="nxu-value"><span class="nxu-dot" id="nxu-persistent-dot"></span><span id="nxu-persistent">检测中</span></div><div class="nxu-note" id="nxu-persistent-note">断线自动重新认证</div></div>
-            <div class="nxu-card"><div class="nxu-label">本次在线</div><div class="nxu-value"><span id="nxu-uptime">—</span></div><div class="nxu-note" id="nxu-flow">未在线时不显示</div></div>
+            <div class="nxu-card"><div class="nxu-label">在线时长</div><div class="nxu-value"><span id="nxu-uptime">—</span></div><div class="nxu-note" id="nxu-flow">未在线时不显示</div></div>
         </div>
         <div class="nxu-console">
             <div class="nxu-console-head" role="tablist" aria-label="日志类型">
@@ -90,17 +90,31 @@
     function update(data){
         var hasUsage=typeof data.online_minutes==='number';
         text('uptime',hasUsage?duration(data.online_minutes):'—');
-        el('uptime').title=data.login_time?'登录于 '+data.login_time:'';
+        el('uptime').title='门户返回的累计在线分钟数（可能跨多次登录）'+(data.login_time?'；最近登录于 '+data.login_time:'');
         var flowNote='未在线时不显示';
         if(hasUsage&&typeof data.flow==='number'){
             var u=data.flow_unit_bytes||1024;
             flowNote='已用 '+traffic(data.flow,u);
-            if(typeof data.flow_down==='number'&&typeof data.flow_up==='number')flowNote+=' · ↓'+traffic(data.flow_down,u)+' ↑'+traffic(data.flow_up,u);
-            el('flow').title='门户原始值 flow='+data.flow+'，当前按 '+u+' 字节/单位换算';
+            el('flow').title='门户返回的累计值（可能跨多次登录）：flow='+data.flow+'，当前按 '+u+' 字节/单位换算';
         }
         text('flow',flowNote);
-        text('process',data.running?'运行中':'未运行');dot('process',data.running?'good':'warn');
-        text('process-note',data.paused==='logout'?'已手动注销 · 自动登录已暂停':data.paused?'连续登录失败 · 已暂停重试':data.enabled?'服务已启用':data.running?'服务开关关闭 · 当前为手动运行':'可在插件设置中启用服务');
+        // 认证进程卡片：持久登录关闭时，服务只在启动或点击「立即认证」时检查一次就退出，进程不常驻，
+        // 这时「未运行」是正常状态，不能显示成告警。
+        var pv, pd, pn;
+        if(data.running){
+            pv='运行中';pd='good';
+            pn=data.paused==='logout'?'已手动注销 · 自动登录已暂停':data.paused?'连续登录失败 · 已暂停重试':data.enabled?'服务已启用 · 持续监测中':'服务开关关闭 · 当前为手动运行';
+        }else if(data.paused){
+            pv='已暂停';pd='warn';
+            pn=data.paused==='logout'?'已手动注销 · 点击「立即认证」恢复':'连续登录失败 · 请检查账号密码后点击「立即认证」';
+        }else if(data.enabled&&!data.persistent){
+            pv='空闲';pd='good';pn='持久登录已关闭 · 仅在启动或点击「立即认证」时检查一次';
+        }else if(data.enabled){
+            pv='未运行';pd='bad';pn='服务已启用但进程未运行 · 请查看日志或重启服务';
+        }else{
+            pv='未运行';pd='warn';pn='服务未启用 · 可在插件设置中启用';
+        }
+        text('process',pv);dot('process',pd);text('process-note',pn);
         var online=data.network==='online', offline=data.network==='offline';
         text('network',online?'已认证':offline?'未认证':'暂时无法确认');dot('network',online?'good':offline?'bad':'warn');
         text('network-note',online?'校园网门户确认在线':offline?'等待认证或自动重连':'门户未响应，稍后自动重试');
