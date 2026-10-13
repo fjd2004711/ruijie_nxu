@@ -475,14 +475,14 @@ renew_wan() {
     return 1
 }
 
-# 注销并恢复网络：解绑注销 → 等待生效 → 重新获取地址。
+# 注销：解绑注销并等待门户确认下线。注销后若旧地址被封锁，由下一次认证时按需重拉 WAN。
 logout_and_recover() {
     logout_with_unbind || return 1
     if ! wait_logout_effect; then
         log_error "注销后门户仍显示在线，疑似被无感知认证/MAC 绑定自动重新登录；请到自助服务（netself.nxu.edu.cn）解除该终端绑定或关闭无感知认证。"
         return 1
     fi
-    renew_wan
+    return 0
 }
 
 # 门户按终端（IP/MAC）保存会话：终端已在线时，换了配置里的账号也不会重新登录。
@@ -502,7 +502,7 @@ ensure_configured_account() {
     switch_tried=1
     log_warn "门户当前在线账号与配置的账号不一致，先注销再用配置账号登录。"
     logout_and_recover || return 1
-    connect || return 1
+    connect_recovering || return 1
     check_connection
     online_uid=$(json_string "$status_page" uid)
     if [ -n "$online_uid" ] && [ "$online_uid" != "$username" ]; then
@@ -595,14 +595,43 @@ connect() {
 }
 
 
+# 登录；若门户不可达（注销后旧地址被封锁），先重新获取 WAN 地址，门户一可达就立即登录。
+# 新地址只在短时间内允许访问门户，所以不能在重拉与登录之间停留。
+connect_recovering() {
+    if ! portal_reachable; then
+        log_warn "无法连接认证门户，旧地址可能被封锁；重新获取 WAN 地址后立即认证。"
+        renew_wan || return 1
+    fi
+    connect
+}
+
+# 手动操作（认证/注销）互斥：快速连点或多个页面同时操作时，后来的直接退出，
+# 避免一个流程重拉 WAN 时打断另一个流程。
+LOCK_DIR=/tmp/netlogin-nxu.lock
+acquire_action_lock() {
+    if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+        lock_pid=$(cat "$LOCK_DIR/pid" 2>/dev/null)
+        if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null; then
+            log_warn "已有认证或注销操作正在进行，请稍后再试。"
+            return 1
+        fi
+        rm -rf "$LOCK_DIR"
+        mkdir "$LOCK_DIR" 2>/dev/null || return 1
+    fi
+    echo $$ > "$LOCK_DIR/pid"
+    trap 'rm -rf "$LOCK_DIR"' EXIT
+}
+
 if [ "${action}" = "once" ]; then
+    acquire_action_lock || exit 1
     if check_connection; then
         ensure_configured_account && { rm -f "$PAUSE_FILE"; log_info "网络已认证。"; exit 0; }
         exit 1
     fi
-    connect
+    connect_recovering
     exit $?
 elif [ "${action}" = "logout" ]; then
+    acquire_action_lock || exit 1
     # 先暂停后台自动登录，否则注销后守护进程会立刻重新认证。
     echo logout > "$PAUSE_FILE" 2>/dev/null
     if logout_and_recover; then exit 0; fi
@@ -629,6 +658,7 @@ else
     offline_since=""
     unreachable_count=0
     failure_count=0
+    last_renew=0
     while true; do
         if check_connection; then
             if [ -n "$offline_since" ]; then
@@ -650,12 +680,23 @@ else
 
         if ! portal_reachable; then
             unreachable_count=$((unreachable_count + 1))
-            wait_time=$((check_interval + unreachable_count * 5))
-            [ "$wait_time" -gt 60 ] && wait_time=60
-            log_state "portal-unreachable" WARN "无法连接认证门户 ${portal_host}；请确认已接入校园网且 WAN 已获取地址。"
-            log_debug "门户不可达，第 ${unreachable_count} 次，${wait_time} 秒后重试。"
-            sleep "$wait_time"
-            continue
+            now=$(date +%s)
+            # 手动注销后保持离线，不重拉；否则每 90 秒最多重拉一次，门户可达后直接往下登录。
+            if [ ! -f "$PAUSE_FILE" ] && [ $((now - last_renew)) -ge 90 ]; then
+                last_renew=$now
+                log_state "portal-unreachable" WARN "无法连接认证门户 ${portal_host}；尝试重新获取 WAN 地址。"
+                if ! renew_wan; then
+                    sleep "$check_interval"
+                    continue
+                fi
+            else
+                wait_time=$((check_interval + unreachable_count * 5))
+                [ "$wait_time" -gt 60 ] && wait_time=60
+                log_state "portal-unreachable" WARN "无法连接认证门户 ${portal_host}；请确认已接入校园网且 WAN 已获取地址。"
+                log_debug "门户不可达，第 ${unreachable_count} 次，${wait_time} 秒后重试。"
+                sleep "$wait_time"
+                continue
+            fi
         fi
         unreachable_count=0
 
