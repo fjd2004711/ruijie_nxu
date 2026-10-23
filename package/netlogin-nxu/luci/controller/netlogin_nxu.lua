@@ -68,6 +68,7 @@ function action_data()
     -- 带引号匹配，避免误取 oltime/olflow。仅在线时有意义。
     local minutes = result == "1" and tonumber(status:match('"time"%s*:%s*(%d+)')) or nil
     local flow = result == "1" and tonumber(status:match('"flow"%s*:%s*(%d+)')) or nil
+    local account = result == "1" and status:match('"uid"%s*:%s*"([^"]*)"') or nil
     local login_time = result == "1" and status:match('"stime"%s*:%s*"(%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d)"') or nil
     -- 门户未说明 flow 的单位，交给用户按实际情况选择（默认 KB）。
     local unit_bytes = ({ kb = 1024, mb = 1048576, word = 4, byte = 1 })[uci:get("netlogin-nxu", "main", "flow_unit") or "kb"] or 1024
@@ -89,6 +90,7 @@ function action_data()
         logs = logs:sub(-131072),
         online_minutes = minutes,
         login_time = login_time,
+        account = account,
         flow = flow,
         flow_unit_bytes = unit_bytes,
         updated = os.date("%H:%M:%S")

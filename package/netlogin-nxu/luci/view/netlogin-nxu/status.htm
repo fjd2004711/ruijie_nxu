@@ -1,52 +1,115 @@
 <%+header%>
 <style>
-.nxu-page{--nxu-blue:#2563eb;--nxu-ink:#263238;--nxu-panel:#364152;--nxu-muted:#91a4b0}
-.nxu-page .nxu-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px;background:var(--background-color,#fff);padding:18px 22px;border-radius:9px}
-.nxu-page .nxu-heading h2{margin:0;padding:0;background:transparent;box-shadow:none}.nxu-updated{font-size:13px;opacity:.65}
-.nxu-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:22px}
-.nxu-card{padding:19px 22px;border:1px solid rgba(128,128,128,.18);border-radius:10px;background:rgba(128,128,128,.035)}
-.nxu-label{font-size:13px;opacity:.65;margin-bottom:10px}.nxu-value{display:flex;align-items:center;gap:9px;font-size:21px;font-weight:600;line-height:1.4}
-.nxu-dot{width:9px;height:9px;border-radius:50%;background:#94a3b8;flex-shrink:0}.nxu-dot.good{background:#22c55e}.nxu-dot.warn{background:#f59e0b}.nxu-dot.bad{background:#ef4444}
-.nxu-note{font-size:12px;opacity:.65;margin-top:8px;min-height:18px}
-.nxu-console{border-radius:9px;overflow:hidden;background:var(--nxu-ink);box-shadow:0 1px 5px #0002}
-.nxu-console-head{display:flex;gap:8px;padding:14px;background:var(--nxu-panel)}
-.nxu-tab{flex:1;padding:11px 14px;border:0;border-radius:7px;background:#253041;color:#c6cbd3;font-size:14px;cursor:pointer}.nxu-tab.active{background:var(--nxu-blue);color:white;font-weight:600}
-.nxu-log{height:clamp(250px,36vh,450px);overflow:auto;padding:12px 0;color:#f1f5f9;font:13px/1.8 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;tab-size:4}
-.nxu-row{display:flex;gap:9px;padding:2px 15px;min-width:max-content}.nxu-row:hover{background:#ffffff08}
-.nxu-line{color:#607d8b;min-width:29px;text-align:right;user-select:none}.nxu-time{color:#c66df5;background:#793ba52b;padding:0 5px;border-radius:4px;white-space:nowrap}
-.nxu-level{min-width:54px;text-align:center;border-radius:4px;color:#67e8f9;background:#22d3ee20;white-space:nowrap}.nxu-level.warn{color:#fbbf24;background:#f59e0b20}.nxu-level.error{color:#fca5a5;background:#ef444425}.nxu-level.debug{color:#94a3b8;background:#94a3b820}
-.nxu-message{white-space:pre}.nxu-message.nxu-success{color:#5ee0ae}.nxu-empty{padding:50px 20px;text-align:center;color:#91a4b0;white-space:normal}
-.nxu-console-foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 16px;border-top:1px solid #ffffff12;color:var(--nxu-muted);font-size:12px}
-.nxu-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:9px;margin-top:16px}.nxu-actions .cbi-button{margin:0}.nxu-error{color:#dc2626;font-size:13px;min-height:20px;margin-top:12px}
-@media(max-width:700px){.nxu-summary{grid-template-columns:1fr;gap:9px}.nxu-card{padding:13px 17px}.nxu-log{height:360px}.nxu-actions .cbi-button{flex:1}.nxu-value{font-size:18px}}
+.nxu-page{--accent:#5b6cf0;--accent-2:#7c8cff;--line:rgba(127,127,127,.22);--surface:rgba(127,127,127,.07);--muted:rgba(127,127,127,.95);--good:#10b981;--warn:#f59e0b;--bad:#ef4444;--ink:#0b1220;--ink-2:#111a2e;--ink-3:#1a2540;font-feature-settings:"tnum"}
+.nxu-page *{box-sizing:border-box}
+.nxu-page .nxu-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 16px}
+.nxu-page .nxu-heading h2{margin:0;padding:0;border:0;background:transparent;box-shadow:none;font-size:22px;font-weight:700;letter-spacing:.2px}
+.nxu-updated{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)}
+.nxu-updated:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--good);box-shadow:0 0 0 0 rgba(16,185,129,.55);animation:nxu-ping 2.2s infinite}
+@keyframes nxu-ping{70%{box-shadow:0 0 0 7px rgba(16,185,129,0)}100%{box-shadow:0 0 0 0 rgba(16,185,129,0)}}
+
+/* 顶部状态横幅 */
+.nxu-hero{position:relative;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;padding:26px 28px;border-radius:16px;color:#fff;overflow:hidden;background:linear-gradient(125deg,#475569,#334155);box-shadow:0 10px 30px -12px rgba(15,23,42,.55);transition:background .4s}
+.nxu-hero:before,.nxu-hero:after{content:"";position:absolute;border-radius:50%;background:rgba(255,255,255,.09);pointer-events:none}
+.nxu-hero:before{width:260px;height:260px;right:-70px;top:-130px}.nxu-hero:after{width:180px;height:180px;right:140px;bottom:-120px;background:rgba(255,255,255,.06)}
+.nxu-hero.good{background:linear-gradient(125deg,#0d9488 0%,#2563eb 100%)}
+.nxu-hero.warn{background:linear-gradient(125deg,#d97706 0%,#ea580c 100%)}
+.nxu-hero.bad{background:linear-gradient(125deg,#e11d48 0%,#9f1239 100%)}
+.nxu-hero-main{display:flex;align-items:center;gap:18px;position:relative;z-index:1;min-width:0}
+.nxu-orb{position:relative;width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.18);display:grid;place-items:center;flex-shrink:0}
+.nxu-orb svg{width:26px;height:26px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.nxu-hero.good .nxu-orb:after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid rgba(255,255,255,.55);animation:nxu-orb 2.4s ease-out infinite}
+@keyframes nxu-orb{from{transform:scale(1);opacity:.9}to{transform:scale(1.55);opacity:0}}
+.nxu-hero-title{font-size:24px;font-weight:700;line-height:1.25;letter-spacing:.3px}
+.nxu-hero-sub{margin-top:5px;font-size:14px;opacity:.88;line-height:1.5}
+.nxu-hero-actions{display:flex;gap:10px;flex-wrap:wrap;position:relative;z-index:1}
+
+.nxu-btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:0 18px;border-radius:10px;border:1px solid transparent;font:inherit;font-size:14px;font-weight:600;line-height:1;cursor:pointer;transition:transform .12s,background .15s,opacity .15s,box-shadow .15s}
+.nxu-btn:active:not(:disabled){transform:translateY(1px)}.nxu-btn:disabled{opacity:.5;cursor:not-allowed}
+.nxu-btn.primary{background:#fff;color:#1e293b;box-shadow:0 4px 14px -4px rgba(0,0,0,.35)}.nxu-btn.primary:hover:not(:disabled){background:#f1f5f9}
+.nxu-btn.outline{background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.55)}.nxu-btn.outline:hover:not(:disabled){background:rgba(255,255,255,.22)}
+
+/* 指标卡片 */
+.nxu-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:18px 0}
+.nxu-card{display:flex;gap:14px;align-items:flex-start;padding:18px 18px;border:1px solid var(--line);border-radius:14px;background:var(--surface);transition:border-color .2s,transform .2s}
+.nxu-card:hover{border-color:var(--accent);transform:translateY(-1px)}
+.nxu-icon{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;flex-shrink:0;background:linear-gradient(135deg,rgba(91,108,240,.2),rgba(124,140,255,.1));color:var(--accent)}
+.nxu-icon svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.nxu-card-body{min-width:0;flex:1}
+.nxu-label{font-size:12.5px;color:var(--muted);margin-bottom:6px;letter-spacing:.3px}
+.nxu-value{display:flex;align-items:center;gap:8px;font-size:20px;font-weight:700;line-height:1.3}
+.nxu-dot{width:9px;height:9px;border-radius:50%;background:#94a3b8;flex-shrink:0}.nxu-dot.good{background:var(--good);box-shadow:0 0 0 3px rgba(16,185,129,.18)}.nxu-dot.warn{background:var(--warn);box-shadow:0 0 0 3px rgba(245,158,11,.18)}.nxu-dot.bad{background:var(--bad);box-shadow:0 0 0 3px rgba(239,68,68,.18)}
+.nxu-note{font-size:12.5px;color:var(--muted);margin-top:6px;line-height:1.5;min-height:18px}
+
+/* 日志台 */
+.nxu-console{border-radius:16px;overflow:hidden;background:var(--ink);border:1px solid #1f2b47;box-shadow:0 14px 34px -16px rgba(2,6,23,.7)}
+.nxu-console-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 16px;background:linear-gradient(180deg,var(--ink-3),var(--ink-2));border-bottom:1px solid #ffffff10}
+.nxu-lights{display:flex;gap:7px}.nxu-lights i{width:11px;height:11px;border-radius:50%;background:#ff5f57}.nxu-lights i:nth-child(2){background:#febc2e}.nxu-lights i:nth-child(3){background:#28c840}
+.nxu-console-title{font-size:13px;color:#94a3b8;font-weight:600;letter-spacing:.4px}
+.nxu-seg{display:inline-flex;padding:3px;border-radius:10px;background:#0b1220;border:1px solid #ffffff12;margin-left:auto}
+.nxu-tab{appearance:none;padding:6px 16px;border:0;border-radius:8px;background:transparent;color:#94a3b8;font:inherit;font-size:13px;cursor:pointer;transition:background .15s,color .15s}
+.nxu-tab:hover{color:#e2e8f0}.nxu-tab.active{background:var(--accent);color:#fff;font-weight:600;box-shadow:0 2px 8px -2px rgba(91,108,240,.7)}
+.nxu-tools{display:flex;gap:6px;flex-wrap:wrap}
+.nxu-tool{appearance:none;padding:6px 12px;border-radius:8px;border:1px solid #ffffff14;background:#ffffff08;color:#cbd5e1;font:inherit;font-size:12.5px;cursor:pointer;transition:background .15s,color .15s}
+.nxu-tool:hover:not(:disabled){background:#ffffff14;color:#fff}.nxu-tool:disabled{opacity:.5;cursor:not-allowed}
+.nxu-log{height:clamp(260px,38vh,460px);overflow:auto;padding:10px 0;color:#e2e8f0;font:12.5px/1.85 ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;tab-size:4;scrollbar-width:thin;scrollbar-color:#334155 transparent}
+.nxu-row{display:flex;align-items:baseline;gap:10px;padding:1px 18px;min-width:max-content}.nxu-row:hover{background:#ffffff09}
+.nxu-line{color:#475569;min-width:26px;text-align:right;user-select:none}
+.nxu-time{color:#7dd3fc;opacity:.85;white-space:nowrap}
+.nxu-level{min-width:42px;padding:0 7px;text-align:center;border-radius:5px;font-size:11.5px;color:#67e8f9;background:#22d3ee1f;white-space:nowrap}.nxu-level.warn{color:#fbbf24;background:#f59e0b24}.nxu-level.error{color:#fda4af;background:#f43f5e2b}.nxu-level.debug{color:#94a3b8;background:#94a3b81f}
+.nxu-message{white-space:pre}.nxu-message.nxu-success{color:#5eead4}.nxu-empty{padding:56px 20px;text-align:center;color:#64748b;white-space:normal}
+.nxu-console-foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 18px;border-top:1px solid #ffffff10;color:#64748b;font-size:12px}
+.nxu-error{font-size:13px;min-height:20px;margin-top:12px;color:var(--bad)}
+
+@media(max-width:700px){
+.nxu-hero{padding:20px 18px;border-radius:14px}.nxu-hero-title{font-size:20px}.nxu-orb{width:46px;height:46px}
+.nxu-hero-actions{width:100%}.nxu-hero-actions .nxu-btn{flex:1}
+.nxu-summary{grid-template-columns:1fr 1fr;gap:10px}.nxu-card{padding:14px;flex-direction:column;gap:10px}.nxu-value{font-size:17px}
+.nxu-lights,.nxu-console-title{display:none}.nxu-seg{margin-left:0}.nxu-log{height:340px}
+}
+@media(max-width:430px){.nxu-summary{grid-template-columns:1fr}.nxu-card{flex-direction:row}}
+@media(prefers-reduced-motion:reduce){.nxu-page *,.nxu-page *:before,.nxu-page *:after{animation:none!important;transition:none!important}}
 </style>
 <div class="cbi-map nxu-page" id="nxu-page">
     <div class="nxu-heading"><h2>运行状态</h2><span class="nxu-updated" id="nxu-updated">正在读取状态…</span></div>
-    <div class="cbi-section">
-        <div class="nxu-summary">
-            <div class="nxu-card"><div class="nxu-label">认证进程</div><div class="nxu-value"><span class="nxu-dot" id="nxu-process-dot"></span><span id="nxu-process">检测中</span></div><div class="nxu-note" id="nxu-process-note">等待路由器响应</div></div>
-            <div class="nxu-card"><div class="nxu-label">校园网连接</div><div class="nxu-value"><span class="nxu-dot" id="nxu-network-dot"></span><span id="nxu-network">检测中</span></div><div class="nxu-note" id="nxu-network-note">读取门户认证状态</div></div>
-            <div class="nxu-card"><div class="nxu-label">持久登录</div><div class="nxu-value"><span class="nxu-dot" id="nxu-persistent-dot"></span><span id="nxu-persistent">检测中</span></div><div class="nxu-note" id="nxu-persistent-note">断线自动重新认证</div></div>
-            <div class="nxu-card"><div class="nxu-label">在线时长</div><div class="nxu-value"><span id="nxu-uptime">—</span></div><div class="nxu-note" id="nxu-flow">未在线时不显示</div></div>
+
+    <section class="nxu-hero" id="nxu-hero" aria-live="polite">
+        <div class="nxu-hero-main">
+            <div class="nxu-orb" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.2" r=".8" fill="#fff"/></svg></div>
+            <div><div class="nxu-hero-title" id="nxu-hero-title">正在读取状态…</div><div class="nxu-hero-sub" id="nxu-hero-sub">等待路由器响应</div></div>
         </div>
-        <div class="nxu-console">
-            <div class="nxu-console-head" role="tablist" aria-label="日志类型">
+        <div class="nxu-hero-actions">
+            <button type="button" class="nxu-btn primary" id="nxu-login">立即认证</button>
+            <button type="button" class="nxu-btn outline" id="nxu-logout">注销</button>
+        </div>
+    </section>
+
+    <div class="nxu-summary">
+        <div class="nxu-card"><div class="nxu-icon"><svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg></div><div class="nxu-card-body"><div class="nxu-label">认证进程</div><div class="nxu-value"><span class="nxu-dot" id="nxu-process-dot"></span><span id="nxu-process">检测中</span></div><div class="nxu-note" id="nxu-process-note">等待路由器响应</div></div></div>
+        <div class="nxu-card"><div class="nxu-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></div><div class="nxu-card-body"><div class="nxu-label">校园网连接</div><div class="nxu-value"><span class="nxu-dot" id="nxu-network-dot"></span><span id="nxu-network">检测中</span></div><div class="nxu-note" id="nxu-network-note">读取门户认证状态</div></div></div>
+        <div class="nxu-card"><div class="nxu-icon"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.5-4.5L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.5 4.5L20 16"/><path d="M20 20v-4h-4"/></svg></div><div class="nxu-card-body"><div class="nxu-label">持久登录</div><div class="nxu-value"><span class="nxu-dot" id="nxu-persistent-dot"></span><span id="nxu-persistent">检测中</span></div><div class="nxu-note" id="nxu-persistent-note">断线自动重新认证</div></div></div>
+        <div class="nxu-card"><div class="nxu-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><div class="nxu-card-body"><div class="nxu-label">在线时长</div><div class="nxu-value"><span id="nxu-uptime">—</span></div><div class="nxu-note" id="nxu-flow">未在线时不显示</div></div></div>
+    </div>
+
+    <div class="nxu-console">
+        <div class="nxu-console-head">
+            <div class="nxu-lights" aria-hidden="true"><i></i><i></i><i></i></div>
+            <span class="nxu-console-title">运行日志</span>
+            <div class="nxu-seg" role="tablist" aria-label="日志类型">
                 <button type="button" class="nxu-tab active" role="tab" aria-selected="true" id="nxu-events">认证日志</button>
                 <button type="button" class="nxu-tab" role="tab" aria-selected="false" id="nxu-all">全部日志</button>
             </div>
-            <div class="nxu-log" id="nxu-log" role="log" aria-label="校园网认证日志"><div class="nxu-empty">正在加载运行日志…</div></div>
-            <div class="nxu-console-foot"><span id="nxu-count">最近 300 条记录</span><span id="nxu-refresh-state">每 5 秒刷新 · 最新记录在前</span></div>
+            <div class="nxu-tools">
+                <button type="button" class="nxu-tool" id="nxu-pause">停止刷新</button>
+                <button type="button" class="nxu-tool" id="nxu-refresh">立即刷新</button>
+                <button type="button" class="nxu-tool" id="nxu-clear">清空显示</button>
+                <button type="button" class="nxu-tool" id="nxu-copy">复制日志</button>
+            </div>
         </div>
-        <div class="nxu-actions">
-            <button type="button" class="cbi-button cbi-button-neutral" id="nxu-pause">停止刷新</button>
-            <button type="button" class="cbi-button cbi-button-apply" id="nxu-refresh">立即刷新</button>
-            <button type="button" class="cbi-button cbi-button-save" id="nxu-login">立即认证</button>
-            <button type="button" class="cbi-button cbi-button-reset" id="nxu-logout">注销</button>
-            <button type="button" class="cbi-button cbi-button-neutral" id="nxu-clear">清空显示</button>
-            <button type="button" class="cbi-button cbi-button-neutral" id="nxu-copy">复制日志</button>
-        </div>
-        <div class="nxu-error" id="nxu-error" role="status"></div>
+        <div class="nxu-log" id="nxu-log" role="log" aria-label="校园网认证日志"><div class="nxu-empty">正在加载运行日志…</div></div>
+        <div class="nxu-console-foot"><span id="nxu-count">最近 300 条记录</span><span id="nxu-refresh-state">每 5 秒刷新 · 最新记录在前</span></div>
     </div>
+    <div class="nxu-error" id="nxu-error" role="status"></div>
 </div>
 <script type="text/javascript">
 (function(){
@@ -120,6 +183,20 @@
         text('network-note',online?'校园网门户确认在线':offline?'等待认证或自动重连':'门户未响应，稍后自动重试');
         text('persistent',data.persistent?'已开启':'已关闭');dot('persistent',data.persistent?'good':'warn');
         text('persistent-note',data.persistent?'每 '+data.interval+' 秒检测 · 断线自动重连':'仅执行一次检查或认证');
+        var hs, ht, hsub;
+        if(online){
+            hs='good';ht='已连接校园网';
+            hsub=(data.account?'账号 '+data.account+' · ':'')+(hasUsage?'累计在线 '+duration(data.online_minutes):'校园网门户确认在线');
+        }else if(data.paused==='logout'){
+            hs='warn';ht='已手动注销';hsub='自动登录已暂停 · 点击「立即认证」恢复';
+        }else if(data.paused){
+            hs='bad';ht='登录已暂停';hsub='连续登录失败 · 请检查账号密码后点击「立即认证」';
+        }else if(offline){
+            hs='bad';ht='未认证';hsub=data.running?'正在尝试自动认证，详情见下方日志':'认证服务未运行，请在插件设置中启用';
+        }else{
+            hs='warn';ht='暂时无法确认';hsub='门户未响应，稍后自动重试';
+        }
+        el('hero').className='nxu-hero '+hs;text('hero-title',ht);text('hero-sub',hsub);
         text('updated','更新于 '+data.updated);logs=data.logs||'';render();text('error','');
     }
     function refresh(){
