@@ -412,8 +412,14 @@ logout_with_unbind() {
         return 1
     fi
     portal_key=$(portal_key_from_ip "$terminal_ip")
+    # 解绑的必须是门户当前在线的账号；换账号时它不是配置里的新账号，所以不能回退到 $username。
     unbind_account=$(json_string "$terminal_status" uid)
-    [ -n "$unbind_account" ] || unbind_account="$username"
+    [ -n "$unbind_account" ] || unbind_account=$(json_string "$status_page" uid)
+    if [ -z "$unbind_account" ]; then
+        log_warn "门户未返回在线账号，无法解绑 MAC，改用普通注销。"
+        logout
+        return
+    fi
     unbind_mac=$(printf '%s' "$terminal_mac" | tr 'a-f' 'A-F')
     unbindResult=$(curl -4 --noproxy '*' -fsS --connect-timeout 8 --max-time 15 -A "$user_agent" \
         --resolve "${portal_host}:${portal_port}:${portal_ip}" -G "${portal_api}/mac/unbind" \
@@ -440,12 +446,20 @@ logout_with_unbind() {
 # 校园网在会话下线后会封锁旧的 WAN 地址：门户 443/804 端口和外网都会连接超时，
 # 只有重新获取 DHCP 地址（实测重启或 ifdown/ifup wan）才能恢复。
 # 等待注销真正生效：门户显示离线，或已经连不上门户（旧地址被封锁）。
+#
+# 单次 check_connection 失败可能只是 curl 偶发超时，所以要连续两次都不在线才算注销生效。
 wait_logout_effect() {
     waited=0
+    offline_hits=0
     while [ "$waited" -lt 90 ]; do
-        sleep 3
+        nap 3
         waited=$((waited + 3))
-        check_connection || return 0
+        if check_connection; then
+            offline_hits=0
+        else
+            offline_hits=$((offline_hits + 1))
+            [ "$offline_hits" -ge 2 ] && return 0
+        fi
     done
     return 1
 }
@@ -459,12 +473,16 @@ renew_wan() {
     fi
     [ -n "$wan_if" ] || wan_if=wan
     log_info "注销后旧地址会被校园网封锁，重新获取 WAN 地址（接口 ${wan_if}）。"
+    # wan_down 标记 ifdown 与 ifup 之间的窗口：此时被终止（如保存配置触发重启服务），
+    # 退出清理会补一次 ifup，避免 WAN 一直处于 down 状态。
+    wan_down=1
     ifdown "$wan_if" >/dev/null 2>&1
-    sleep 2
+    nap 2
     ifup "$wan_if" >/dev/null 2>&1
+    wan_down=0
     wait_portal=0
     while [ "$wait_portal" -lt 30 ]; do
-        sleep 1
+        nap 1
         wait_portal=$((wait_portal + 1))
         if portal_reachable; then
             log_debug "重新获取地址后门户可达，用时 ${wait_portal} 秒。"
@@ -487,19 +505,12 @@ logout_and_recover() {
 
 # 门户按终端（IP/MAC）保存会话：终端已在线时，换了配置里的账号也不会重新登录。
 # 如果门户当前在线的账号与配置不一致，先注销再用配置账号登录。
-# 依赖 check_connection 刚刚保存的 status_page；每种不一致只尝试切换一次，避免反复注销。
-switch_tried=0
-ensure_configured_account() {
-    online_uid=$(json_string "$status_page" uid)
-    if [ -z "$online_uid" ] || [ "$online_uid" = "$username" ]; then
-        switch_tried=0
-        return 0
-    fi
-    if [ "$switch_tried" = "1" ]; then
-        log_state "account-mismatch" WARN "切换账号后门户仍显示其他账号在线；请在门户自助页确认该终端是否被其他账号绑定。"
-        return 0
-    fi
-    switch_tried=1
+# 依赖 check_connection 刚刚保存的 status_page。
+# 切换失败按退避重试（60 秒 × 失败次数，3 次后每 30 分钟一次），不会因一次偶发失败永久放弃；
+# 重试间隔也避免反复注销。注销流程进行中（暂停标志为 logout）不切换。
+switch_fail=0
+switch_next=0
+switch_account() {
     log_warn "门户当前在线账号与配置的账号不一致，先注销再用配置账号登录。"
     logout_and_recover || return 1
     connect_recovering || return 1
@@ -509,6 +520,36 @@ ensure_configured_account() {
         log_error "登录后在线的仍不是配置的账号，疑似 MAC 绑定到了其他账号；请先到自助服务（netself.nxu.edu.cn）关闭无感知认证或解除该终端绑定，详见 README「使用前必读」。"
         return 1
     fi
+    return 0
+}
+
+ensure_configured_account() {
+    online_uid=$(json_string "$status_page" uid)
+    if [ -z "$online_uid" ] || [ "$online_uid" = "$username" ]; then
+        switch_fail=0
+        switch_next=0
+        return 0
+    fi
+    [ "$(cat "$PAUSE_FILE" 2>/dev/null)" = "logout" ] && return 0
+    switch_now=$(date +%s)
+    # 退避期内静默跳过，不当作失败，也不刷日志。
+    [ "$switch_now" -ge "$switch_next" ] || return 0
+    run_locked switch_account
+    switch_rc=$?
+    # 有别的认证/注销操作正在进行：不算失败，下个周期再看。
+    [ "$switch_rc" -eq 75 ] && return 1
+    if [ "$switch_rc" -ne 0 ]; then
+        switch_fail=$((switch_fail + 1))
+        if [ "$switch_fail" -ge 3 ]; then
+            switch_next=$((switch_now + 1800))
+            log_state "account-mismatch" WARN "切换账号已连续失败 ${switch_fail} 次；请在门户自助页确认该终端是否被其他账号绑定。之后每 30 分钟重试一次。"
+        else
+            switch_next=$((switch_now + 60 * switch_fail))
+        fi
+        return 1
+    fi
+    switch_fail=0
+    switch_next=0
     return 0
 }
 
@@ -605,22 +646,129 @@ connect_recovering() {
     connect
 }
 
-# 手动操作（认证/注销）互斥：快速连点或多个页面同时操作时，后来的直接退出，
-# 避免一个流程重拉 WAN 时打断另一个流程。
+
+# 可被信号打断的 sleep：普通 sleep 是前台命令，收到 SIGTERM 要等它结束才会执行 trap。
+nap_pid=""
+nap() {
+    sleep "$1" &
+    nap_pid=$!
+    wait "$nap_pid"
+    nap_pid=""
+}
+
+# 认证/注销/切换账号/重拉 WAN 全部互斥，包括后台守护进程自己的操作：
+# 否则守护进程与 LuCI 触发的手动流程会同时 ifdown/ifup 并重复登录。
+# 手动操作遇到锁直接退出；守护进程遇到锁则跳过本周期。
 LOCK_DIR=/tmp/netlogin-nxu.lock
+LOCK_HELD=0
+
+# 锁是否被存活的进程持有（pid 尚未写入视为刚创建，仍然持有）。
+lock_busy() {
+    [ -d "$LOCK_DIR" ] || return 1
+    busy_pid=$(cat "$LOCK_DIR/pid" 2>/dev/null)
+    [ -n "$busy_pid" ] || return 0
+    kill -0 "$busy_pid" 2>/dev/null
+}
+
+# 用法: acquire_action_lock [quiet]；已持有时直接成功（可重入）。
 acquire_action_lock() {
-    if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    [ "$LOCK_HELD" = "1" ] && return 0
+    lock_attempt=0
+    while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+        lock_attempt=$((lock_attempt + 1))
+        [ "$lock_attempt" -le 6 ] || return 1
         lock_pid=$(cat "$LOCK_DIR/pid" 2>/dev/null)
-        if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null; then
-            log_warn "已有认证或注销操作正在进行，请稍后再试。"
+        if [ -z "$lock_pid" ]; then
+            # 持有者可能刚 mkdir、还没写入 pid；多等一会儿再判定为陈旧锁。
+            if [ "$lock_attempt" -le 2 ]; then
+                nap 1
+                continue
+            fi
+        elif kill -0 "$lock_pid" 2>/dev/null; then
+            [ "$1" = "quiet" ] || log_warn "已有认证或注销操作正在进行，请稍后再试。"
             return 1
         fi
-        rm -rf "$LOCK_DIR"
-        mkdir "$LOCK_DIR" 2>/dev/null || return 1
-    fi
+        # 陈旧锁：用 mv 原子地挪走，只有一个竞争者能成功，避免互相 rm 掉对方刚建的锁。
+        lock_stale="$LOCK_DIR.stale.$$"
+        if mv "$LOCK_DIR" "$lock_stale" 2>/dev/null; then
+            if [ "$(cat "$lock_stale/pid" 2>/dev/null)" = "$lock_pid" ]; then
+                rm -rf "$lock_stale"
+            else
+                # 挪走的是别人刚建的锁，放回去并让出。
+                mv "$lock_stale" "$LOCK_DIR" 2>/dev/null || rm -rf "$lock_stale"
+                [ "$1" = "quiet" ] || log_warn "已有认证或注销操作正在进行，请稍后再试。"
+                return 1
+            fi
+        fi
+    done
     echo $$ > "$LOCK_DIR/pid"
-    trap 'rm -rf "$LOCK_DIR"' EXIT
+    LOCK_HELD=1
+    return 0
 }
+
+release_action_lock() {
+    [ "$LOCK_HELD" = "1" ] || return 0
+    LOCK_HELD=0
+    if [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ]; then
+        rm -rf "$LOCK_DIR"
+    fi
+    return 0
+}
+
+# 在锁内执行命令；锁被别人持有时返回 75（EX_TEMPFAIL），已持有则直接执行。
+run_locked() {
+    if [ "$LOCK_HELD" = "1" ]; then
+        "$@"
+        return $?
+    fi
+    acquire_action_lock quiet || return 75
+    "$@"
+    locked_rc=$?
+    release_action_lock
+    return $locked_rc
+}
+
+# 在线时清掉过期的暂停标志。注销流程持有锁，所以锁被占用说明注销正在进行，
+# 此时会话尚未下线，不能清除（否则会话一下线守护进程就会立刻重新登录）。
+clear_stale_pause() {
+    [ -f "$PAUSE_FILE" ] || return 0
+    lock_busy && return 0
+    rm -f "$PAUSE_FILE"
+}
+
+# 守护进程在离线时的恢复动作（在锁内执行）：必要时重拉 WAN，随后登录。
+# 返回: 0 登录成功  1 登录失败  3 已暂停  4 门户不可达（等待）  5 重拉 WAN 失败
+daemon_recover() {
+    [ -f "$PAUSE_FILE" ] && return 3
+    if ! portal_reachable; then
+        unreachable_count=$((unreachable_count + 1))
+        now=$(date +%s)
+        # 每 90 秒最多重拉一次；门户一可达就直接往下登录。
+        [ $((now - last_renew)) -ge 90 ] || return 4
+        last_renew=$now
+        log_state "portal-unreachable" WARN "无法连接认证门户 ${portal_host}；尝试重新获取 WAN 地址。"
+        renew_wan || return 5
+    fi
+    unreachable_count=0
+    log_state "connection-offline" WARN "网络未认证，尝试登录。"
+    connect
+}
+
+# 退出（含 SIGTERM，例如保存配置触发服务重启）时：补上被中断的 ifup、释放锁。
+cleanup() {
+    [ -n "$nap_pid" ] && kill "$nap_pid" 2>/dev/null
+    if [ "$wan_down" = "1" ]; then
+        wan_down=0
+        ifup "${wan_if:-wan}" >/dev/null 2>&1
+    fi
+    release_action_lock
+}
+wan_down=0
+trap cleanup EXIT
+trap 'exit 143' HUP INT TERM
+
+unreachable_count=0
+last_renew=0
 
 if [ "${action}" = "once" ]; then
     acquire_action_lock || exit 1
@@ -650,55 +798,31 @@ else
             log_state "connection-online" INFO "网络已认证。"
             exit 0
         fi
-        connect
+        run_locked connect
         exit $?
     fi
 
     # 进入主循环
     offline_since=""
-    unreachable_count=0
     failure_count=0
-    last_renew=0
     while true; do
         if check_connection; then
             if [ -n "$offline_since" ]; then
                 log_info "网络已恢复，中断约 $(( $(date +%s) - offline_since )) 秒。"
                 offline_since=""
             fi
-            ensure_configured_account || log_debug "账号切换未完成，下个周期重试。"
+            clear_stale_pause
+            ensure_configured_account || log_debug "账号切换未完成，稍后重试。"
             log_state "connection-online" INFO "网络已认证，持续监测中。"
             retry_count=0
             unreachable_count=0
             failure_count=0
-            rm -f "$PAUSE_FILE"
             log_debug "状态检测：在线，${check_interval} 秒后再次检测。"
-            sleep "$check_interval"
+            nap "$check_interval"
             continue
         fi
 
         [ -n "$offline_since" ] || offline_since=$(date +%s)
-
-        if ! portal_reachable; then
-            unreachable_count=$((unreachable_count + 1))
-            now=$(date +%s)
-            # 手动注销后保持离线，不重拉；否则每 90 秒最多重拉一次，门户可达后直接往下登录。
-            if [ ! -f "$PAUSE_FILE" ] && [ $((now - last_renew)) -ge 90 ]; then
-                last_renew=$now
-                log_state "portal-unreachable" WARN "无法连接认证门户 ${portal_host}；尝试重新获取 WAN 地址。"
-                if ! renew_wan; then
-                    sleep "$check_interval"
-                    continue
-                fi
-            else
-                wait_time=$((check_interval + unreachable_count * 5))
-                [ "$wait_time" -gt 60 ] && wait_time=60
-                log_state "portal-unreachable" WARN "无法连接认证门户 ${portal_host}；请确认已接入校园网且 WAN 已获取地址。"
-                log_debug "门户不可达，第 ${unreachable_count} 次，${wait_time} 秒后重试。"
-                sleep "$wait_time"
-                continue
-            fi
-        fi
-        unreachable_count=0
 
         if [ -f "$PAUSE_FILE" ]; then
             if [ "$(cat "$PAUSE_FILE" 2>/dev/null)" = "logout" ]; then
@@ -706,16 +830,32 @@ else
             else
                 log_state "paused-failures" ERROR "连续登录失败已暂停重试；请检查账号密码，在 LuCI 点击「立即认证」或重启服务后恢复。"
             fi
-            sleep 30
+            nap 30
             continue
         fi
 
-        log_state "connection-offline" WARN "网络未认证，尝试登录。"
-        if connect; then
-            retry_count=0
-            sleep "$check_interval"
-            continue
-        fi
+        run_locked daemon_recover
+        recover_rc=$?
+        case "$recover_rc" in
+            0)
+                retry_count=0
+                nap "$check_interval"
+                continue
+                ;;
+            3|5|75)
+                nap "$check_interval"
+                continue
+                ;;
+            4)
+                wait_time=$((check_interval + unreachable_count * 5))
+                [ "$wait_time" -gt 60 ] && wait_time=60
+                log_state "portal-unreachable" WARN "无法连接认证门户 ${portal_host}；请确认已接入校园网且 WAN 已获取地址。"
+                log_debug "门户不可达，第 ${unreachable_count} 次，${wait_time} 秒后重试。"
+                nap "$wait_time"
+                continue
+                ;;
+        esac
+
         retry_count=$(($retry_count + 1))
         if [ "$connect_rejected" = "1" ]; then
             failure_count=$((failure_count + 1))
@@ -732,7 +872,7 @@ else
             log_error "尝试重连达到最大次数，退出。"
             break
         fi
-        sleep "$wait_time"
+        nap "$wait_time"
     done
 
     # 退出前记录日志

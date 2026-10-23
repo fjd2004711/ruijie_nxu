@@ -64,7 +64,9 @@ unit.rmempty = false
 unit.description = translate("门户返回的已用流量未标明单位。若状态页显示的流量与校园网自助服务里的数值相差悬殊，请切换此项；状态页流量旁的原始数值可用于对照。")
 
 function m.on_after_commit(self)
-    sys.call("/etc/init.d/netlogin-nxu restart >/dev/null 2>&1")
+    -- 后台重启：不阻塞页面。重启时守护进程会补上被中断的 WAN 操作并释放互斥锁；
+    -- 正在进行的手动认证/注销不受影响（新旧进程通过互斥锁串行）。
+    sys.call("(/etc/init.d/netlogin-nxu restart >/dev/null 2>&1 &)")
 end
 
 return m

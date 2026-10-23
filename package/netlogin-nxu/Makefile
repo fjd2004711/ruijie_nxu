@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=netlogin-nxu
-PKG_VERSION:=1.2.0
+PKG_VERSION:=1.2.1
 PKG_RELEASE:=1
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 

@@ -22,6 +22,9 @@ start_service() {
 
 	procd_open_instance
 	procd_set_param command "$PROG" --uci
+	# 脚本收到 SIGTERM 后会补上被中断的 ifup 并释放锁；给它足够的退出时间，
+	# 避免保存配置触发重启时被 SIGKILL 打断在重拉 WAN 的中途。
+	procd_set_param term_timeout 20
 	if [ "$persistent_login" = "1" ]; then
 		procd_set_param respawn 3600 5 5
 	fi
