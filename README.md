@@ -115,6 +115,7 @@ chmod +x netlogin.sh
 ```text
 ./netlogin.sh         campus <账号> <密码> [操作] [日志级别]
 ./netlogin_openwrt.sh campus <账号> <密码> [操作] [日志级别]
+./netlogin_openwrt.sh --uci [操作]          # 读取 UCI 配置，init.d 与 LuCI 都用此模式
 ```
 
 | 参数 | 可选值 | 默认行为 |
@@ -122,7 +123,7 @@ chmod +x netlogin.sh
 | 服务类型 | `campus` | 为兼容旧命令保留，当前统一认证页使用校园网账号。 |
 | 操作 | 留空、`once`、`logout` | 留空时持续监测并自动重连。 |
 | 日志级别 | `ERROR`、`WARN`、`INFO`、`DEBUG` | `INFO`。 |
-| 连续失败上限 | 数字，`0` 为不限制 | `5`。连续被服务器拒绝登录达到次数后暂停自动重试，防止密码错误导致账号被锁定；在 LuCI 点击「立即认证」或重启服务后恢复。 |
+| 连续失败上限（仅 OpenWrt / UCI） | 数字，`0` 为不限制 | `5`。连续被服务器拒绝登录达到次数后暂停自动重试，防止密码错误导致账号被锁定；在 LuCI 点击「立即认证」或重启服务后恢复。命令行模式下固定为 `5`；`netlogin.sh` 没有这个开关，连续重连 99 次后退出。 |
 
 ### OpenWrt 服务
 
@@ -155,6 +156,8 @@ uci commit netlogin-nxu
 /etc/init.d/netlogin-nxu restart
 ```
 
+`wan_interface` 不是必填项：多 WAN 或逻辑接口名不是 `wan` 时，可先执行 `uci set netlogin-nxu.main.wan_interface='wan2'` 指定重拉地址用的接口；未设置时脚本按门户出口接口自动识别，识别失败才回退到 `wan`。
+
 “持久登录”关闭时，脚本只执行一次检查或认证。LuCI 的“清空显示”只清除当前页面已显示的记录，系统日志仍可用于排查。
 
 ## 实测状态
@@ -167,7 +170,7 @@ uci commit netlogin-nxu
 | `netlogin_openwrt.sh` | iStoreOS 24.10.6 / BusyBox ash | 登录成功，日志确认断线后自动认证恢复。 |
 | LuCI | iStoreOS 24.10.6 / Argon | 状态读取、日志切换、自动刷新、暂停、清空显示和复制通过。 |
 | IPK 升级 | `1.1.3-r2`，同一路由器 | 本地包实机安装成功，账号配置保留，安装文件与仓库一致。 |
-| 回归检查 | Bash / POSIX sh | 7 项检查通过，覆盖编码回退、终端信息、状态判断与错误处理。 |
+| 回归检查 | Bash / POSIX sh | 18 项检查通过（当前 `tests/` 用例数），覆盖编码回退、终端信息、状态判断、互斥锁与错误处理。 |
 
 本次未进行路由器重启测试；其他固件的端到端验证待补充。
 
